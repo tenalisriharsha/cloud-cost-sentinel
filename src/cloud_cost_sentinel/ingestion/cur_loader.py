@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 from dateutil import parser as date_parser
@@ -26,21 +27,30 @@ CUR_COLUMN_MAP: dict[str, str] = {
 }
 
 
+def parse_cur_rows(fieldnames: Iterable[str] | None, rows: Iterable[dict[str, str]]) -> list[CostRecord]:
+    """Validate CUR column headers and parse row dicts into ``CostRecord`` objects.
+
+    Shared by every CUR source (local CSV, S3) so each loader only needs to
+    supply an open file handle or equivalent row iterator.
+    """
+    missing_columns = set(CUR_COLUMN_MAP) - set(fieldnames or [])
+    if missing_columns:
+        raise ValueError(f"CUR file is missing required columns: {sorted(missing_columns)}")
+
+    records: list[CostRecord] = []
+    for row in rows:
+        mapped = {CUR_COLUMN_MAP[key]: value for key, value in row.items() if key in CUR_COLUMN_MAP}
+        mapped["usage_date"] = date_parser.isoparse(mapped["usage_date"]).date()
+        records.append(CostRecord(**mapped))
+    return records
+
+
 def load_cost_records(path: str | Path) -> list[CostRecord]:
     """Parse a CUR-format CSV file into a list of validated ``CostRecord``."""
     csv_path = Path(path)
     with csv_path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
-        missing_columns = set(CUR_COLUMN_MAP) - set(reader.fieldnames or [])
-        if missing_columns:
-            raise ValueError(f"CUR file is missing required columns: {sorted(missing_columns)}")
-
-        records: list[CostRecord] = []
-        for row in reader:
-            mapped = {CUR_COLUMN_MAP[key]: value for key, value in row.items() if key in CUR_COLUMN_MAP}
-            mapped["usage_date"] = date_parser.isoparse(mapped["usage_date"]).date()
-            records.append(CostRecord(**mapped))
-        return records
+        return parse_cur_rows(reader.fieldnames, reader)
 
 
 def load_cost_dataframe(path: str | Path) -> pd.DataFrame:
