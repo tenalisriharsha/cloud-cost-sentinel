@@ -19,3 +19,16 @@ class CostRecord(BaseModel):
     usage_date: date
     unblended_cost: float = Field(ge=0)
     currency: str = "USD"
+
+
+class Anomaly(BaseModel):
+    """A flagged unusual cost observation for one service on one day."""
+
+    model_config = ConfigDict(frozen=True)
+
+    service: str
+    usage_date: date
+    actual_cost: float = Field(ge=0)
+    expected_cost: float = Field(ge=0)
+    score: float
+    method: str
