@@ -76,12 +76,12 @@ until `pytest` is green for it.
   - [x] Unit tests for config, models, and the CUR loader
   - [x] README with Project Status pointing here
 
-- [ ] **Phase 2 — Anomaly Detection** (Night 2)
-  - [ ] `ingestion/s3_loader.py` — LocalStack S3 CUR ingestion (boto3, `aws` extra)
-  - [ ] `analysis/anomaly.py` — z-score based daily/service anomaly detection
-  - [ ] `analysis/` rolling-IQR method as a second detector for comparison
-  - [ ] `Anomaly` model
-  - [ ] Tests for both detectors against synthetic and sample data
+- [x] **Phase 2 — Anomaly Detection** (Night 2)
+  - [x] `ingestion/s3_loader.py` — S3 / LocalStack CUR ingestion (boto3, `aws` extra), sharing row-parsing with `cur_loader.py` via a new `parse_cur_rows` helper
+  - [x] `analysis/anomaly.py` — z-score based daily/service anomaly detection
+  - [x] `analysis/anomaly.py` rolling-IQR method as a second detector for comparison
+  - [x] `Anomaly` model
+  - [x] Tests for both detectors against synthetic and sample data, plus S3 loader tests against a `moto`-mocked bucket (`moto` added to `dev` extra, which now self-depends on `aws` so `pip install -e ".[dev]"` alone is sufficient)
 
 - [ ] **Phase 3 — Forecasting** (Night 3)
   - [ ] `forecasting/prophet_forecast.py` — next-month spend forecast
@@ -102,17 +102,40 @@ until `pytest` is green for it.
   - [ ] GitHub Actions CI (lint + test)
   - [ ] Final README pass, architecture diagram polish
 
-## Where to resume (Night 2)
+## Where to resume (Night 3)
 
-Start Phase 2 with `ingestion/s3_loader.py`: a LocalStack-backed S3 CUR
-loader that reuses `CUR_COLUMN_MAP` and `CostRecord` validation from
-`ingestion/cur_loader.py` (factor the row-parsing logic out of
-`load_cost_records` into a shared helper that both the CSV path and the S3
-path call, rather than duplicating it). Add the `aws` extra's `boto3` as an
-actual runtime import there. Then build `analysis/anomaly.py` on top of
-`load_cost_dataframe`, using the existing `data/sample/sample_cur.csv`
-fixture (it already has a deliberate EC2 cost spike on 2026-08-06 to exercise
-the detector against). Add `Anomaly` to `models.py` once `analysis/` is
-ready to construct instances of it — not before.
+Phase 2 landed: `ingestion/s3_loader.py` (S3 / LocalStack CUR loader sharing
+`parse_cur_rows` with `cur_loader.py`), `analysis/anomaly.py` (z-score +
+rolling-IQR detectors), and the `Anomaly` model. Worth knowing before
+building on top of this:
+
+- The sample fixture's deliberate EC2 spike (2026-08-06) is **not** caught by
+  `detect_anomalies_zscore` at the default `anomaly_z_threshold` (3.0) — a
+  single outlier among 9 uniform points caps its own z-score just under 3.0
+  (the "masking" effect, documented in `README.md` and
+  `tests/test_anomaly.py`). It *is* caught by `detect_anomalies_rolling_iqr`
+  at its defaults (`window=5`, `multiplier=3.0`). Keep this in mind if
+  Phase 4's alerting wires up anomaly detection to Slack — prefer the
+  rolling-IQR detector, or lower the z-score threshold, for the sample data
+  to actually trigger an alert end-to-end.
+- `detect_anomalies_rolling_iqr`'s default `multiplier` is 3.0 (Tukey's "far
+  out" fence), not the usual 1.5 boxplot fence — 1.5 flags routine
+  day-to-day drift on low-variance services (see
+  `test_rolling_iqr_default_multiplier_is_less_sensitive_than_boxplot_fence`).
+- `pip install -e ".[dev]"` now transitively installs `boto3` + `moto`
+  (`dev` extra self-depends on `aws` in `pyproject.toml`) so the S3 loader
+  is fully testable without real AWS or LocalStack running.
+
+Start Phase 3 with `forecasting/prophet_forecast.py`: a next-month spend
+forecast built on top of `daily_service_costs` (or a similar total-daily-cost
+aggregate — Prophet wants a `ds`/`y` shaped frame) from
+`analysis/anomaly.py`. Add a `ForecastPoint` model to `models.py` once the
+forecasting function is ready to construct instances of it. Then add the
+budget-drift calculation (forecast total vs. `Settings.monthly_budget_usd`).
+The `data/sample/sample_cur.csv` fixture only spans 10 days, which is too
+short for a meaningful Prophet fit — Phase 3 will likely need a second,
+longer synthetic fixture (or a generated synthetic series in the test itself)
+to exercise forecasting sensibly; don't force the existing 10-day fixture to
+do double duty here.
 
 STATUS: IN_PROGRESS
