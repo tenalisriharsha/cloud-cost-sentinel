@@ -8,6 +8,7 @@ def _clean_env(monkeypatch):
     for var in [
         "CCS_MONTHLY_BUDGET_USD",
         "CCS_ANOMALY_Z_THRESHOLD",
+        "CCS_FORECAST_HORIZON_DAYS",
         "CCS_SLACK_WEBHOOK_URL",
         "CCS_SAMPLE_DATA_DIR",
     ]:
@@ -18,8 +19,15 @@ def test_default_settings_have_sane_values():
     settings = get_settings()
     assert settings.monthly_budget_usd == 1000.0
     assert settings.anomaly_z_threshold == 3.0
+    assert settings.forecast_horizon_days == 30
     assert settings.currency == "USD"
     assert settings.slack_webhook_url is None
+
+
+def test_forecast_horizon_days_must_be_positive(monkeypatch):
+    monkeypatch.setenv("CCS_FORECAST_HORIZON_DAYS", "0")
+    with pytest.raises(ValueError):
+        get_settings()
 
 
 def test_settings_read_from_environment(monkeypatch):

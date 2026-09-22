@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from cloud_cost_sentinel.models import CostRecord
+from cloud_cost_sentinel.models import BudgetDrift, CostRecord, ForecastPoint
 
 
 def test_cost_record_accepts_valid_data():
@@ -49,3 +49,37 @@ def test_cost_record_is_immutable():
     )
     with pytest.raises(ValidationError):
         record.unblended_cost = 100.0
+
+
+def test_forecast_point_rejects_negative_cost():
+    with pytest.raises(ValidationError):
+        ForecastPoint(
+            usage_date=date(2026, 9, 1),
+            forecast_cost=-1.0,
+            forecast_low=0.0,
+            forecast_high=10.0,
+        )
+
+
+def test_forecast_point_is_immutable():
+    point = ForecastPoint(
+        usage_date=date(2026, 9, 1),
+        forecast_cost=42.0,
+        forecast_low=35.0,
+        forecast_high=50.0,
+    )
+    with pytest.raises(ValidationError):
+        point.forecast_cost = 100.0
+
+
+def test_budget_drift_requires_positive_budget():
+    with pytest.raises(ValidationError):
+        BudgetDrift(
+            period_start=date(2026, 9, 1),
+            period_end=date(2026, 9, 30),
+            forecast_total_usd=500.0,
+            budget_usd=0.0,
+            drift_usd=500.0,
+            drift_pct=100.0,
+            over_budget=True,
+        )

@@ -32,3 +32,32 @@ class Anomaly(BaseModel):
     expected_cost: float = Field(ge=0)
     score: float
     method: str
+
+
+class ForecastPoint(BaseModel):
+    """A single day's forecasted total spend (all services), with an
+    uncertainty interval, produced by the Prophet forecasting model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    usage_date: date
+    forecast_cost: float = Field(ge=0)
+    forecast_low: float = Field(ge=0)
+    forecast_high: float = Field(ge=0)
+
+
+class BudgetDrift(BaseModel):
+    """A forecasted period's total spend compared against the configured
+    monthly budget.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    period_start: date
+    period_end: date
+    forecast_total_usd: float = Field(ge=0)
+    budget_usd: float = Field(gt=0)
+    drift_usd: float
+    drift_pct: float
+    over_budget: bool

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     monthly_budget_usd: float = Field(default=1000.0, gt=0)
     anomaly_z_threshold: float = Field(default=3.0, gt=0)
+    forecast_horizon_days: int = Field(default=30, gt=0)
     currency: str = "USD"
 
     sample_data_dir: Path = Path("data/sample")
