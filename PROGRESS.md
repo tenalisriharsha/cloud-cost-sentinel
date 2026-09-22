@@ -83,11 +83,12 @@ until `pytest` is green for it.
   - [x] `Anomaly` model
   - [x] Tests for both detectors against synthetic and sample data, plus S3 loader tests against a `moto`-mocked bucket (`moto` added to `dev` extra, which now self-depends on `aws` so `pip install -e ".[dev]"` alone is sufficient)
 
-- [ ] **Phase 3 — Forecasting** (Night 3)
-  - [ ] `forecasting/prophet_forecast.py` — next-month spend forecast
-  - [ ] `ForecastPoint` model
-  - [ ] Budget-drift calculation (forecast vs. `monthly_budget_usd`)
-  - [ ] Tests (forecast shape/sanity checks, drift calculation)
+- [x] **Phase 3 — Forecasting** (Night 3)
+  - [x] `forecasting/prophet_forecast.py` — daily spend forecast (`daily_total_costs`, `forecast_daily_costs`)
+  - [x] `ForecastPoint` model
+  - [x] Budget-drift calculation (`calculate_budget_drift`, forecast vs. `monthly_budget_usd`) + `BudgetDrift` model
+  - [x] `forecast_horizon_days` setting (`CCS_FORECAST_HORIZON_DAYS`, default 30)
+  - [x] Tests (forecast shape/sanity checks against synthetic series, minimum-history guard, drift calculation, model validation)
 
 - [ ] **Phase 4 — Alerting** (Night 4)
   - [ ] `alerting/slack.py` — Slack webhook client
@@ -102,40 +103,57 @@ until `pytest` is green for it.
   - [ ] GitHub Actions CI (lint + test)
   - [ ] Final README pass, architecture diagram polish
 
-## Where to resume (Night 3)
+## Where to resume (Night 4)
 
-Phase 2 landed: `ingestion/s3_loader.py` (S3 / LocalStack CUR loader sharing
-`parse_cur_rows` with `cur_loader.py`), `analysis/anomaly.py` (z-score +
-rolling-IQR detectors), and the `Anomaly` model. Worth knowing before
-building on top of this:
+Phase 3 landed: `forecasting/prophet_forecast.py` (`daily_total_costs`,
+`forecast_daily_costs`, `calculate_budget_drift`), and the `ForecastPoint`
++ `BudgetDrift` models. Worth knowing before building on top of this:
 
 - The sample fixture's deliberate EC2 spike (2026-08-06) is **not** caught by
   `detect_anomalies_zscore` at the default `anomaly_z_threshold` (3.0) — a
   single outlier among 9 uniform points caps its own z-score just under 3.0
   (the "masking" effect, documented in `README.md` and
   `tests/test_anomaly.py`). It *is* caught by `detect_anomalies_rolling_iqr`
-  at its defaults (`window=5`, `multiplier=3.0`). Keep this in mind if
-  Phase 4's alerting wires up anomaly detection to Slack — prefer the
-  rolling-IQR detector, or lower the z-score threshold, for the sample data
-  to actually trigger an alert end-to-end.
+  at its defaults (`window=5`, `multiplier=3.0`). Keep this in mind for
+  Phase 4's alerting — prefer the rolling-IQR detector, or lower the
+  z-score threshold, for the sample data to actually trigger an alert
+  end-to-end.
 - `detect_anomalies_rolling_iqr`'s default `multiplier` is 3.0 (Tukey's "far
   out" fence), not the usual 1.5 boxplot fence — 1.5 flags routine
   day-to-day drift on low-variance services (see
   `test_rolling_iqr_default_multiplier_is_less_sensitive_than_boxplot_fence`).
-- `pip install -e ".[dev]"` now transitively installs `boto3` + `moto`
-  (`dev` extra self-depends on `aws` in `pyproject.toml`) so the S3 loader
-  is fully testable without real AWS or LocalStack running.
+- `pip install -e ".[dev]"` now transitively installs `boto3` + `moto` +
+  `prophet` (`dev` extra self-depends on `aws` and `forecast` in
+  `pyproject.toml`), so both the S3 loader and the forecasting path are
+  fully testable with no external services and no extra setup.
+- `forecast_daily_costs` requires at least `MIN_HISTORY_DAYS` (14) days of
+  input history and raises `ValueError` below that — the 10-day
+  `sample_cur.csv` fixture is too short to forecast from as-is. Tests build
+  longer synthetic series inline (`tests/test_forecast.py`,
+  `_synthetic_daily_df`) rather than adding a second fixture file. If Phase
+  5's dashboard/CLI wants to demo forecasting against the sample data, it
+  will need a longer fixture (or synthetic generation) too — the existing
+  `sample_cur.csv` shouldn't be stretched to do both jobs.
+- `forecast_daily_costs` clamps `forecast_cost`/`forecast_low`/
+  `forecast_high` at 0 — Prophet's linear trend can extrapolate slightly
+  negative for low-cost/short series, which isn't physically meaningful for
+  spend.
+- `BudgetDrift` lives in `models.py` alongside `ForecastPoint` (not a
+  separate dataclass in the forecasting module) to keep the "domain models
+  live in models.py" convention from Phase 1/2 consistent — `Anomaly` set
+  that precedent and `BudgetDrift` follows it, even though the original
+  Night 2 plan only mentioned adding `ForecastPoint`.
 
-Start Phase 3 with `forecasting/prophet_forecast.py`: a next-month spend
-forecast built on top of `daily_service_costs` (or a similar total-daily-cost
-aggregate — Prophet wants a `ds`/`y` shaped frame) from
-`analysis/anomaly.py`. Add a `ForecastPoint` model to `models.py` once the
-forecasting function is ready to construct instances of it. Then add the
-budget-drift calculation (forecast total vs. `Settings.monthly_budget_usd`).
-The `data/sample/sample_cur.csv` fixture only spans 10 days, which is too
-short for a meaningful Prophet fit — Phase 3 will likely need a second,
-longer synthetic fixture (or a generated synthetic series in the test itself)
-to exercise forecasting sensibly; don't force the existing 10-day fixture to
-do double duty here.
+Start Phase 4 with `alerting/slack.py`: a Slack webhook client (use the
+`slack_sdk` `WebhookClient`, already in the `alerts` extra) that can post a
+formatted message for either an `Anomaly` or a `BudgetDrift`. Add the
+`BudgetAlert` model to `models.py` once the alert-formatting function is
+ready to construct instances of it (following the same domain-model
+convention noted above). Then add basic throttling/dedup — likely keyed on
+`(service, usage_date, method)` for anomalies and on the forecast period for
+budget alerts — so the same condition doesn't re-page on every run; an
+in-memory dedup store is enough for now since there's no persistence layer
+yet. Tests should mock the Slack webhook call (no real network access) and
+cover formatting output and throttling logic separately.
 
 STATUS: IN_PROGRESS
