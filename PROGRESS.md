@@ -90,12 +90,12 @@ until `pytest` is green for it.
   - [x] `forecast_horizon_days` setting (`CCS_FORECAST_HORIZON_DAYS`, default 30)
   - [x] Tests (forecast shape/sanity checks against synthetic series, minimum-history guard, drift calculation, model validation)
 
-- [ ] **Phase 4 — Alerting** (Night 4)
-  - [ ] `alerting/slack.py` — Slack webhook client
-  - [ ] Alert formatting for anomalies and budget-drift
-  - [ ] Basic alert throttling/dedup
-  - [ ] `BudgetAlert` model
-  - [ ] Tests (mocked Slack calls, formatting, throttling logic)
+- [x] **Phase 4 — Alerting** (Night 4)
+  - [x] `alerting/slack.py` — Slack webhook client (`slack_sdk` `WebhookClient`, imported lazily)
+  - [x] Alert formatting for anomalies and budget-drift (`format_anomaly_alert`, `format_budget_drift_alert`)
+  - [x] Basic alert throttling/dedup (`AlertThrottle`, keyed on `BudgetAlert.dedup_key`)
+  - [x] `BudgetAlert` model
+  - [x] Tests (fake webhook client for formatting/send/throttle logic, one real-`WebhookClient`-construction test via monkeypatch)
 
 - [ ] **Phase 5 — Dashboard & Polish** (Night 5)
   - [ ] Streamlit dashboard: cost trends, anomalies, forecast vs. budget
@@ -103,11 +103,48 @@ until `pytest` is green for it.
   - [ ] GitHub Actions CI (lint + test)
   - [ ] Final README pass, architecture diagram polish
 
-## Where to resume (Night 4)
+## Where to resume (Night 5)
 
-Phase 3 landed: `forecasting/prophet_forecast.py` (`daily_total_costs`,
-`forecast_daily_costs`, `calculate_budget_drift`), and the `ForecastPoint`
-+ `BudgetDrift` models. Worth knowing before building on top of this:
+Phase 4 landed: `alerting/slack.py` (`format_anomaly_alert`,
+`format_budget_drift_alert`, `AlertThrottle`, `send_alert`), and the
+`BudgetAlert` model. Worth knowing before building on top of this:
+
+- `send_alert` takes an optional `webhook_client` for dependency injection.
+  When omitted, it lazily imports `slack_sdk.webhook.WebhookClient` and
+  builds one from `Settings.slack_webhook_url` — so importing
+  `cloud_cost_sentinel.alerting` (or calling `format_*`/`AlertThrottle`)
+  never requires `slack_sdk` to be installed; only actually sending without
+  an injected client does. Tests pass a fake client instead of monkeypatching
+  network calls (see `tests/test_slack.py`), except for one test that
+  verifies the real-`WebhookClient`-construction path via `monkeypatch`.
+- `AlertThrottle` is in-memory only (a `set` of `dedup_key` strings) and only
+  marks a key sent *after* a successful (HTTP 200) send — a failed send can
+  be retried on the next run. There's no persistence layer, so a throttle
+  instance needs to be created once and reused across calls (e.g. one per
+  CLI/dashboard process) to be useful; a fresh one is created per call in the
+  wild and it'll just never dedupe anything.
+- `format_budget_drift_alert` formats regardless of `drift.over_budget` —
+  callers are expected to check that flag themselves before calling it,
+  since a routine under-budget forecast isn't page-worthy. (Phase 5's CLI
+  wiring is the natural place to add that check once, rather than baking it
+  into the formatter.)
+- `alerts` extra (`slack-sdk`) was added to `dev`'s dependency chain in
+  `pyproject.toml` (alongside `aws` and `forecast`, following the Phase 2/3
+  precedent), so `pip install -e ".[dev]"` alone is sufficient for the full
+  test suite — no separate Slack setup needed.
+
+Start Phase 5 by wiring a CLI entrypoint that chains ingestion -> analysis
+-> forecasting -> alerting end-to-end against `data/sample/sample_cur.csv`
+(remembering the two fixture gotchas below: use the rolling-IQR detector or
+a lower z-score threshold for the anomaly to fire, and the sample fixture is
+too short to forecast from directly — generate a longer synthetic series or
+extend the fixture). Then build the Streamlit dashboard on top of the same
+functions the CLI and tests use, add GitHub Actions CI (lint + test), and do
+a final README/architecture-diagram pass. Once the dashboard, CLI, and CI
+are in and the full suite is green, write `DAILY_REPORT.md` and flip STATUS
+to COMPLETE.
+
+Older context, still true:
 
 - The sample fixture's deliberate EC2 spike (2026-08-06) is **not** caught by
   `detect_anomalies_zscore` at the default `anomaly_z_threshold` (3.0) — a
@@ -115,9 +152,9 @@ Phase 3 landed: `forecasting/prophet_forecast.py` (`daily_total_costs`,
   (the "masking" effect, documented in `README.md` and
   `tests/test_anomaly.py`). It *is* caught by `detect_anomalies_rolling_iqr`
   at its defaults (`window=5`, `multiplier=3.0`). Keep this in mind for
-  Phase 4's alerting — prefer the rolling-IQR detector, or lower the
-  z-score threshold, for the sample data to actually trigger an alert
-  end-to-end.
+  Phase 5's CLI/dashboard wiring — prefer the rolling-IQR detector, or
+  lower the z-score threshold, for the sample data to actually trigger an
+  alert end-to-end.
 - `detect_anomalies_rolling_iqr`'s default `multiplier` is 3.0 (Tukey's "far
   out" fence), not the usual 1.5 boxplot fence — 1.5 flags routine
   day-to-day drift on low-variance services (see
@@ -142,18 +179,7 @@ Phase 3 landed: `forecasting/prophet_forecast.py` (`daily_total_costs`,
   separate dataclass in the forecasting module) to keep the "domain models
   live in models.py" convention from Phase 1/2 consistent — `Anomaly` set
   that precedent and `BudgetDrift` follows it, even though the original
-  Night 2 plan only mentioned adding `ForecastPoint`.
-
-Start Phase 4 with `alerting/slack.py`: a Slack webhook client (use the
-`slack_sdk` `WebhookClient`, already in the `alerts` extra) that can post a
-formatted message for either an `Anomaly` or a `BudgetDrift`. Add the
-`BudgetAlert` model to `models.py` once the alert-formatting function is
-ready to construct instances of it (following the same domain-model
-convention noted above). Then add basic throttling/dedup — likely keyed on
-`(service, usage_date, method)` for anomalies and on the forecast period for
-budget alerts — so the same condition doesn't re-page on every run; an
-in-memory dedup store is enough for now since there's no persistence layer
-yet. Tests should mock the Slack webhook call (no real network access) and
-cover formatting output and throttling logic separately.
+  Night 2 plan only mentioned adding `ForecastPoint`. `BudgetAlert` follows
+  the same convention in Phase 4.
 
 STATUS: IN_PROGRESS

@@ -20,7 +20,9 @@ exactly what's done vs. what's next.
   detector, so their output can be compared.
 - **Forecasting** — project daily spend forward with Prophet, and compare
   the forecast total against the configured monthly budget.
-- **Alerting** — post budget-drift and anomaly alerts to Slack. *(planned)*
+- **Alerting** — format anomaly and budget-drift alerts and post them to
+  Slack, with in-memory throttling so the same condition doesn't re-page on
+  every run.
 - **Dashboard** — visualize cost trends, anomalies, and forecasts. *(planned)*
 
 ## Getting started
@@ -33,9 +35,10 @@ pytest
 ```
 
 `pip install -e ".[dev]"` also pulls in `boto3` + `moto` (via the `aws`
-extra) and `prophet` (via the `forecast` extra), so the S3 ingestion path
-and the forecasting path are both testable without a real AWS account,
-LocalStack, or any extra setup.
+extra), `prophet` (via the `forecast` extra), and `slack-sdk` (via the
+`alerts` extra), so the S3 ingestion path, the forecasting path, and the
+Slack alerting path are all testable without a real AWS account,
+LocalStack, or a real Slack workspace.
 
 ## Usage
 
@@ -103,6 +106,39 @@ meaningful enough to act on, so the function raises `ValueError` instead.
 The 10-day sample CUR fixture is intentionally too short for this; forecast
 tests build longer synthetic series (see `tests/test_forecast.py`).
 
+### Alerting
+
+```python
+from cloud_cost_sentinel.alerting import (
+    AlertThrottle,
+    format_anomaly_alert,
+    format_budget_drift_alert,
+    send_alert,
+)
+
+throttle = AlertThrottle()  # in-memory; create once and reuse across runs
+
+for anomaly in rolling_anomalies:
+    alert = format_anomaly_alert(anomaly)
+    send_alert(alert, throttle=throttle)  # reads CCS_SLACK_WEBHOOK_URL
+
+if drift.over_budget:
+    send_alert(format_budget_drift_alert(drift), throttle=throttle)
+```
+
+`format_anomaly_alert` and `format_budget_drift_alert` turn an `Anomaly` or
+`BudgetDrift` into a `BudgetAlert` — a formatted message plus a `dedup_key`
+(`service`/`usage_date`/`method` for anomalies, the forecast period for
+budget drift). `send_alert` posts that message to the Slack webhook
+configured via `CCS_SLACK_WEBHOOK_URL`, returning `False` without making a
+network call if no webhook is configured or if an `AlertThrottle` has
+already seen that `dedup_key` — so the same condition doesn't re-page on
+every run. There's no persistence layer yet, so a throttle only lives as
+long as the process holding it. `slack_sdk` is imported lazily inside
+`send_alert`, so formatting and throttling work without the `alerts` extra
+installed; pass a `webhook_client` directly to `send_alert` to test against
+a fake client instead of a real Slack workspace (see `tests/test_slack.py`).
+
 ## Project layout
 
 ```
@@ -112,6 +148,7 @@ src/cloud_cost_sentinel/
   ingestion/              # CUR CSV / S3 (LocalStack-compatible) loaders
   analysis/                # anomaly detection (z-score, rolling IQR)
   forecasting/              # Prophet-based daily spend forecast + budget drift
+  alerting/                 # Slack alert formatting, throttling, and sending
 data/sample/               # sample CUR data used by tests and local runs
 tests/                      # pytest suite
 ```
