@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from cloud_cost_sentinel.models import BudgetDrift, CostRecord, ForecastPoint
+from cloud_cost_sentinel.models import BudgetAlert, BudgetDrift, CostRecord, ForecastPoint
 
 
 def test_cost_record_accepts_valid_data():
@@ -83,3 +83,14 @@ def test_budget_drift_requires_positive_budget():
             drift_pct=100.0,
             over_budget=True,
         )
+
+
+def test_budget_alert_rejects_unknown_source():
+    with pytest.raises(ValidationError):
+        BudgetAlert(source="not_a_real_source", dedup_key="k", message="m")
+
+
+def test_budget_alert_is_immutable():
+    alert = BudgetAlert(source="anomaly", dedup_key="anomaly:AmazonEC2:2026-08-06:zscore", message="m")
+    with pytest.raises(ValidationError):
+        alert.message = "changed"

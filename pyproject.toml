@@ -27,7 +27,7 @@ dev = [
     "pytest>=8.2",
     "pytest-cov>=5.0",
     "moto[s3]>=5.0",
-    "cloud-cost-sentinel[aws,forecast]",
+    "cloud-cost-sentinel[aws,forecast,alerts]",
 ]
 
 [tool.hatch.build.targets.wheel]

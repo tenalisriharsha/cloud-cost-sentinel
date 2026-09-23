@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,3 +62,16 @@ class BudgetDrift(BaseModel):
     drift_usd: float
     drift_pct: float
     over_budget: bool
+
+
+class BudgetAlert(BaseModel):
+    """A formatted Slack message built from an :class:`Anomaly` or a
+    :class:`BudgetDrift`, plus the key used to dedupe repeated sends of the
+    same underlying condition.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source: Literal["anomaly", "budget_drift"]
+    dedup_key: str
+    message: str
