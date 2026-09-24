@@ -27,11 +27,23 @@ dev = [
     "pytest>=8.2",
     "pytest-cov>=5.0",
     "moto[s3]>=5.0",
-    "cloud-cost-sentinel[aws,forecast,alerts]",
+    "ruff>=0.6",
+    "cloud-cost-sentinel[aws,forecast,alerts,dashboard]",
 ]
+
+[project.scripts]
+ccs = "cloud_cost_sentinel.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cloud_cost_sentinel"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: exercises Prophet and/or a full Streamlit AppTest run"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
