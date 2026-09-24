@@ -7,9 +7,10 @@ dashboard to tie it all together.
 
 ## Project Status
 
-This project is under active, public, nightly development. See
-[PROGRESS.md](PROGRESS.md) for the architecture, the phased build plan, and
-exactly what's done vs. what's next.
+This project completed its planned nightly build (Phases 1-5). See
+[PROGRESS.md](PROGRESS.md) for the architecture and phased build history, and
+[DAILY_REPORT.md](DAILY_REPORT.md) for a summary of what was built each
+night, test results, and known limitations.
 
 ## Features
 
@@ -23,7 +24,11 @@ exactly what's done vs. what's next.
 - **Alerting** — format anomaly and budget-drift alerts and post them to
   Slack, with in-memory throttling so the same condition doesn't re-page on
   every run.
-- **Dashboard** — visualize cost trends, anomalies, and forecasts. *(planned)*
+- **CLI** — a single `ccs` command chains ingestion, anomaly detection,
+  forecasting, and alerting into one end-to-end run.
+- **Dashboard** — a Streamlit app visualizing daily spend trends with
+  anomalies marked, and a forecast-vs-budget chart, built on the exact same
+  functions as the CLI and test suite.
 
 ## Getting started
 
@@ -35,10 +40,25 @@ pytest
 ```
 
 `pip install -e ".[dev]"` also pulls in `boto3` + `moto` (via the `aws`
-extra), `prophet` (via the `forecast` extra), and `slack-sdk` (via the
-`alerts` extra), so the S3 ingestion path, the forecasting path, and the
-Slack alerting path are all testable without a real AWS account,
-LocalStack, or a real Slack workspace.
+extra), `prophet` (via the `forecast` extra), `slack-sdk` (via the `alerts`
+extra), and `streamlit` + `plotly` (via the `dashboard` extra), so the S3
+ingestion path, the forecasting path, the Slack alerting path, and the
+dashboard are all testable without a real AWS account, LocalStack, a real
+Slack workspace, or a browser.
+
+## Running it
+
+```bash
+ccs                       # runs the full pipeline against the sample CUR fixtures
+streamlit run src/cloud_cost_sentinel/dashboard/app.py   # interactive dashboard
+```
+
+`ccs` prints a text report: anomalies found, the forecast vs. budget, and how
+many alerts were sent vs. skipped (no Slack webhook is configured by
+default, so alerts are formatted and throttled but not actually posted —
+set `CCS_SLACK_WEBHOOK_URL` to send for real). Pass `--anomaly-data` /
+`--forecast-data` to point either step at a different CUR CSV; see
+`ccs --help`.
 
 ## Usage
 
@@ -103,8 +123,13 @@ print(drift.over_budget, drift.drift_usd, drift.drift_pct)
 (`ds`/`y` shaped, summed across services) and requires at least 14 days of
 history — Prophet will technically fit on less, but the forecast isn't
 meaningful enough to act on, so the function raises `ValueError` instead.
-The 10-day sample CUR fixture is intentionally too short for this; forecast
-tests build longer synthetic series (see `tests/test_forecast.py`).
+The 10-day `sample_cur.csv` fixture is intentionally too short for this (it's
+tuned for the anomaly-detection walkthrough above instead); a separate
+45-day `data/sample/sample_cur_forecast.csv` fixture exists purely to give
+`forecast_daily_costs` enough history for a meaningful demo forecast, and is
+what the CLI and dashboard forecast against by default. Forecast unit tests
+build their own longer synthetic series inline instead of using either
+fixture (see `tests/test_forecast.py`).
 
 ### Alerting
 
@@ -139,6 +164,42 @@ long as the process holding it. `slack_sdk` is imported lazily inside
 installed; pass a `webhook_client` directly to `send_alert` to test against
 a fake client instead of a real Slack workspace (see `tests/test_slack.py`).
 
+### CLI
+
+```python
+from cloud_cost_sentinel.cli import run_pipeline, format_report
+
+result = run_pipeline()  # anomaly_data_path/forecast_data_path default to the sample fixtures
+print(format_report(result))
+```
+
+`run_pipeline` is what the `ccs` command wraps: it loads the anomaly-data
+CUR CSV and runs `detect_anomalies_rolling_iqr` on it (rather than the
+z-score detector, since z-score's own masking effect means it misses the
+sample fixture's deliberate spike at the default threshold), loads the
+forecast-data CUR CSV and runs `forecast_daily_costs` + `calculate_budget_drift`
+on it, then formats and dispatches a `BudgetAlert` for every anomaly and
+(only if `drift.over_budget`) one for the budget drift — accepting the same
+`throttle` and `webhook_client` injection points as `send_alert`, so it's
+tested with a fake client (see `tests/test_cli.py`) exactly like
+`alerting/slack.py` is.
+
+### Dashboard
+
+```bash
+streamlit run src/cloud_cost_sentinel/dashboard/app.py
+```
+
+The dashboard calls `run_pipeline()` for its numbers and reloads the same
+two CUR fixtures to build two charts: a daily-spend line with anomaly days
+marked, and a forecast line (with its uncertainty band) against a flat
+budget reference line, plus the anomalies table and the sent/skipped alert
+list. The chart-building functions (`build_daily_trend_frame`,
+`build_trend_figure`, `build_forecast_figure`) are plain pandas/plotly and
+importable without Streamlit itself, so they're unit-tested directly;
+`tests/test_dashboard.py` also drives the whole app through
+`streamlit.testing.v1.AppTest` as an end-to-end smoke test.
+
 ## Project layout
 
 ```
@@ -149,8 +210,11 @@ src/cloud_cost_sentinel/
   analysis/                # anomaly detection (z-score, rolling IQR)
   forecasting/              # Prophet-based daily spend forecast + budget drift
   alerting/                 # Slack alert formatting, throttling, and sending
+  cli.py                    # `ccs` entrypoint chaining ingestion -> analysis -> forecasting -> alerting
+  dashboard/                # Streamlit app visualizing the same pipeline
 data/sample/               # sample CUR data used by tests and local runs
 tests/                      # pytest suite
+.github/workflows/         # CI: lint (ruff) + test (pytest) on push/PR
 ```
 
 ## License

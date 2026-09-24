@@ -34,12 +34,14 @@ FinOps team could actually look at.
                 |  budget drift +     | --> BudgetAlert[]
                 |     alerting         |     -> Slack
                 +-------------------+
+                          ^
                           |
-                          v
-                +-------------------+
-                |     dashboard        |
-                |   (Streamlit)          |
-                +-------------------+
+              cli.run_pipeline() orchestrates all four layers above,
+              consumed by both:
+                    +----------+        +--------------------+
+                    |   ccs    |        |  dashboard (Streamlit) |
+                    | (CLI)    |        |  same pipeline, charted  |
+                    +----------+        +--------------------+
 ```
 
 - **config** — a single `pydantic-settings` `Settings` object, overridable via
@@ -59,8 +61,11 @@ FinOps team could actually look at.
   budget-drift calculation (forecast vs. configured budget).
 - **alerting** — formats anomalies and budget-drift into Slack messages,
   with basic throttling so the same anomaly doesn't page twice.
+- **cli** — `cli.py` chains ingestion -> analysis -> forecasting -> alerting
+  into one `run_pipeline()` call, exposed as the `ccs` console script.
 - **dashboard** — Streamlit app that visualizes cost trends, anomalies, and
-  forecasts against budget, driven by the same modules used by the CLI/tests.
+  forecasts against budget, driven by the same `run_pipeline()` used by the
+  CLI/tests.
 
 Every phase below lands with its own tests; nothing is considered "done"
 until `pytest` is green for it.
@@ -97,17 +102,44 @@ until `pytest` is green for it.
   - [x] `BudgetAlert` model
   - [x] Tests (fake webhook client for formatting/send/throttle logic, one real-`WebhookClient`-construction test via monkeypatch)
 
-- [ ] **Phase 5 — Dashboard & Polish** (Night 5)
-  - [ ] Streamlit dashboard: cost trends, anomalies, forecast vs. budget
-  - [ ] CLI entrypoint wiring ingestion -> analysis -> forecasting -> alerting
-  - [ ] GitHub Actions CI (lint + test)
-  - [ ] Final README pass, architecture diagram polish
+- [x] **Phase 5 — Dashboard & Polish** (Night 5)
+  - [x] Streamlit dashboard: cost trends, anomalies, forecast vs. budget
+  - [x] CLI entrypoint wiring ingestion -> analysis -> forecasting -> alerting
+  - [x] GitHub Actions CI (lint + test)
+  - [x] Final README pass, architecture diagram polish
 
-## Where to resume (Night 5)
+## Project complete
 
-Phase 4 landed: `alerting/slack.py` (`format_anomaly_alert`,
-`format_budget_drift_alert`, `AlertThrottle`, `send_alert`), and the
-`BudgetAlert` model. Worth knowing before building on top of this:
+Phase 5 landed the last pieces: `cli.py` (`run_pipeline`, `format_report`,
+the `ccs` console script), `dashboard/app.py` (Streamlit, built on
+`run_pipeline`), and `.github/workflows/ci.yml` (ruff + pytest on push/PR
+across Python 3.11/3.12). All five phases are done, the full test suite is
+green (`pytest` — 75 tests), and `DAILY_REPORT.md` summarizes the whole
+build. See that file for what was built each night, test results, and known
+limitations/future ideas.
+
+Worth knowing if picking this back up:
+
+- `run_pipeline` deliberately reads from *two different* CUR fixtures:
+  `data/sample/sample_cur.csv` (10 days, has the deliberate EC2 spike, too
+  short to forecast from) for anomaly detection, and the new
+  `data/sample/sample_cur_forecast.csv` (45 days, synthetic upward trend,
+  no anomaly) for forecasting. This was a deliberate choice over stretching
+  one fixture to do both jobs (see the Phase 3 note below on why
+  `sample_cur.csv` wasn't touched) — a real deployment would point both
+  flags at the same, larger CUR export.
+- The dashboard (`dashboard/app.py`) re-loads those same two fixtures itself
+  rather than threading raw DataFrames through `PipelineResult` — the CLI's
+  return type stays UI-agnostic, and reloading two small CSVs is cheap.
+- `ruff` was added as the lint tool (`select = ["E", "F", "I"]`,
+  `line-length = 120`); CI runs `ruff check .` before `pytest`.
+- The Streamlit `AppTest`-based end-to-end test in `tests/test_dashboard.py`
+  is marked `@pytest.mark.slow` since it fits a real Prophet model; it isn't
+  excluded from the default `pytest` run (still fast enough, ~a few
+  seconds), the marker exists so it *could* be filtered out later if that
+  changes.
+
+Older context, still true:
 
 - `send_alert` takes an optional `webhook_client` for dependency injection.
   When omitted, it lazily imports `slack_sdk.webhook.WebhookClient` and
@@ -133,17 +165,6 @@ Phase 4 landed: `alerting/slack.py` (`format_anomaly_alert`,
   precedent), so `pip install -e ".[dev]"` alone is sufficient for the full
   test suite — no separate Slack setup needed.
 
-Start Phase 5 by wiring a CLI entrypoint that chains ingestion -> analysis
--> forecasting -> alerting end-to-end against `data/sample/sample_cur.csv`
-(remembering the two fixture gotchas below: use the rolling-IQR detector or
-a lower z-score threshold for the anomaly to fire, and the sample fixture is
-too short to forecast from directly — generate a longer synthetic series or
-extend the fixture). Then build the Streamlit dashboard on top of the same
-functions the CLI and tests use, add GitHub Actions CI (lint + test), and do
-a final README/architecture-diagram pass. Once the dashboard, CLI, and CI
-are in and the full suite is green, write `DAILY_REPORT.md` and flip STATUS
-to COMPLETE.
-
 Older context, still true:
 
 - The sample fixture's deliberate EC2 spike (2026-08-06) is **not** caught by
@@ -165,12 +186,13 @@ Older context, still true:
   fully testable with no external services and no extra setup.
 - `forecast_daily_costs` requires at least `MIN_HISTORY_DAYS` (14) days of
   input history and raises `ValueError` below that — the 10-day
-  `sample_cur.csv` fixture is too short to forecast from as-is. Tests build
-  longer synthetic series inline (`tests/test_forecast.py`,
-  `_synthetic_daily_df`) rather than adding a second fixture file. If Phase
-  5's dashboard/CLI wants to demo forecasting against the sample data, it
-  will need a longer fixture (or synthetic generation) too — the existing
-  `sample_cur.csv` shouldn't be stretched to do both jobs.
+  `sample_cur.csv` fixture is too short to forecast from as-is. Unit tests
+  build longer synthetic series inline (`tests/test_forecast.py`,
+  `_synthetic_daily_df`) rather than using a fixture file. Phase 5's
+  CLI/dashboard demo needed real forecast output against on-disk data, so it
+  got its own fixture instead — `data/sample/sample_cur_forecast.csv` (45
+  days, synthetic upward trend) — rather than stretching `sample_cur.csv` to
+  do both the anomaly-detection and forecasting jobs.
 - `forecast_daily_costs` clamps `forecast_cost`/`forecast_low`/
   `forecast_high` at 0 — Prophet's linear trend can extrapolate slightly
   negative for low-cost/short series, which isn't physically meaningful for
@@ -182,4 +204,4 @@ Older context, still true:
   Night 2 plan only mentioned adding `ForecastPoint`. `BudgetAlert` follows
   the same convention in Phase 4.
 
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
