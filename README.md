@@ -5,6 +5,33 @@ data, detects spending anomalies with statistical methods, forecasts next
 month's spend with Prophet, and sends budget-drift alerts to Slack — with a
 dashboard to tie it all together.
 
+## Preview
+
+The Streamlit dashboard running against the sample CUR fixtures:
+
+![Dashboard overview — metrics, daily spend trend, forecast vs. budget, and alerts](docs/screenshots/01-overview.png)
+
+<details>
+<summary>More views</summary>
+
+**Daily spend & anomalies** — total daily spend with the detected outlier marked:
+
+![Daily spend trend with an anomaly marked](docs/screenshots/02-metrics-and-trend.png)
+
+**Anomaly detail** — the rolling-IQR detector's output for the flagged day:
+
+![Anomaly detail table](docs/screenshots/03-anomaly-detail.png)
+
+**Forecast vs. budget** — Prophet's forecast against the configured monthly budget:
+
+![Forecast vs budget chart](docs/screenshots/04-forecast-vs-budget.png)
+
+**Alerts** — formatted anomaly and budget-drift alerts, expandable:
+
+![Alerts section with one alert expanded](docs/screenshots/05-alerts.png)
+
+</details>
+
 ## Project Status
 
 This project completed its planned nightly build (Phases 1-5). See
