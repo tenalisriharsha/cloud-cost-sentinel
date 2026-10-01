@@ -30,6 +30,10 @@ The Streamlit dashboard running against the sample CUR fixtures:
 
 ![Alerts section with one alert expanded](docs/screenshots/05-alerts.png)
 
+**CLI** — the same pipeline, end to end, from the terminal:
+
+![ccs running the full pipeline: ingest, detect, forecast, alert](docs/screenshots/06-cli-pipeline.png)
+
 </details>
 
 ## Project Status
