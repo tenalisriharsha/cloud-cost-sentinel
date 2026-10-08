@@ -1,4 +1,7 @@
+import logging
+import socket
 from datetime import date
+from urllib.error import URLError
 
 import pytest
 
@@ -150,6 +153,54 @@ def test_send_alert_does_not_mark_throttle_on_failed_send():
 
     assert result is False
     assert throttle.should_send(alert) is True
+
+
+class _UnreachableWebhookClient:
+    def send(self, *, text: str) -> _FakeWebhookResponse:
+        raise URLError("[Errno 111] Connection refused")
+
+
+def test_send_alert_returns_false_and_logs_when_webhook_is_unreachable(caplog):
+    alert = format_anomaly_alert(_anomaly())
+    throttle = AlertThrottle()
+
+    with caplog.at_level(logging.WARNING, logger="cloud_cost_sentinel.alerting.slack"):
+        result = send_alert(alert, throttle=throttle, webhook_client=_UnreachableWebhookClient())
+
+    assert result is False
+    assert throttle.should_send(alert) is True
+    assert "Connection refused" in caplog.text
+
+
+def _closed_local_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.mark.parametrize(
+    "webhook_url",
+    [
+        pytest.param(f"http://127.0.0.1:{_closed_local_port()}/hook", id="connection-refused"),
+        pytest.param("not-a-url", id="malformed-url"),
+    ],
+)
+def test_send_alert_with_real_client_returns_false_instead_of_raising(webhook_url, caplog):
+    alert = format_anomaly_alert(_anomaly())
+
+    with caplog.at_level(logging.WARNING, logger="cloud_cost_sentinel.alerting.slack"):
+        result = send_alert(alert, settings=Settings(slack_webhook_url=webhook_url))
+
+    assert result is False
+    assert "failed to send" in caplog.text
+
+
+def test_send_alert_logs_non_200_response(caplog):
+    with caplog.at_level(logging.WARNING, logger="cloud_cost_sentinel.alerting.slack"):
+        result = send_alert(format_anomaly_alert(_anomaly()), webhook_client=_FakeWebhookClient(status_code=500))
+
+    assert result is False
+    assert "HTTP 500" in caplog.text
 
 
 def test_send_alert_uses_real_webhook_client_when_configured(monkeypatch):
