@@ -38,9 +38,17 @@ def parse_cur_rows(fieldnames: Iterable[str] | None, rows: Iterable[dict[str, st
         raise ValueError(f"CUR file is missing required columns: {sorted(missing_columns)}")
 
     records: list[CostRecord] = []
-    for row in rows:
+    # Data rows start on line 2, after the header.
+    for line_number, row in enumerate(rows, start=2):
         mapped = {CUR_COLUMN_MAP[key]: value for key, value in row.items() if key in CUR_COLUMN_MAP}
-        mapped["usage_date"] = date_parser.isoparse(mapped["usage_date"]).date()
+        # csv.DictReader fills missing trailing fields with None.
+        empty_columns = sorted(key for key in CUR_COLUMN_MAP if row.get(key) is None)
+        if empty_columns:
+            raise ValueError(f"CUR row on line {line_number} is missing values for: {empty_columns}")
+        try:
+            mapped["usage_date"] = date_parser.isoparse(mapped["usage_date"]).date()
+        except ValueError as exc:
+            raise ValueError(f"CUR row on line {line_number} has an invalid usage date: {exc}") from exc
         records.append(CostRecord(**mapped))
     return records
 

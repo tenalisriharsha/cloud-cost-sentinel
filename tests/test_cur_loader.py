@@ -59,6 +59,24 @@ def test_empty_cur_file_returns_empty_dataframe(tmp_path):
     assert df.empty
 
 
+def test_row_with_missing_trailing_fields_raises_value_error_naming_the_line(tmp_path):
+    short_csv = tmp_path / "short.csv"
+    short_csv.write_text(CUR_HEADER + "111122223333,AmazonEC2,BoxUsage:t3.medium\n")
+    with pytest.raises(ValueError, match=r"line 2 is missing values for: .*lineItem/UsageStartDate"):
+        load_cost_records(short_csv)
+
+
+def test_unparseable_usage_date_raises_value_error_naming_the_line(tmp_path):
+    bad_csv = tmp_path / "bad_date.csv"
+    bad_csv.write_text(
+        CUR_HEADER
+        + "111122223333,AmazonEC2,BoxUsage:t3.medium,us-east-1,2026-08-01T00:00:00Z,1.00,USD\n"
+        + "111122223333,AmazonEC2,BoxUsage:t3.medium,us-east-1,yesterday,1.00,USD\n"
+    )
+    with pytest.raises(ValueError, match="line 3 has an invalid usage date"):
+        load_cost_records(bad_csv)
+
+
 def test_negative_cost_in_source_file_is_rejected(tmp_path):
     bad_csv = tmp_path / "negative.csv"
     bad_csv.write_text(
