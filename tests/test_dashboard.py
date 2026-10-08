@@ -10,6 +10,7 @@ from cloud_cost_sentinel.dashboard.app import (
     build_daily_trend_frame,
     build_forecast_figure,
     build_trend_figure,
+    escape_dollar_signs,
 )
 from cloud_cost_sentinel.models import Anomaly, ForecastPoint
 
@@ -112,6 +113,10 @@ def test_build_forecast_figure_draws_budget_line_at_its_daily_equivalent():
     assert fig.layout.annotations[0].text == "Budget per day ($1,000 / 5 days)"
 
 
+def test_escape_dollar_signs_prevents_latex_math_between_amounts():
+    assert escape_dollar_signs("Actual: $187.44  |  Expected: $42.10") == r"Actual: \$187.44  |  Expected: \$42.10"
+
+
 def test_declared_streamlit_floor_supports_width_stretch():
     # app.py passes width="stretch" to st.plotly_chart/st.dataframe, which
     # raises TypeError on Streamlit releases before 1.49.
@@ -132,3 +137,5 @@ def test_dashboard_app_runs_end_to_end_without_error():
     assert at.title[0].value == "Cloud Cost Sentinel"
     assert len(at.metric) == 3
     assert any("Not sent (throttled, no webhook configured, or send failed)" in md.value for md in at.markdown)
+    alert_bodies = [md.value for expander in at.expander for md in expander.markdown]
+    assert any(r"Actual: \$187.44" in body for body in alert_bodies)

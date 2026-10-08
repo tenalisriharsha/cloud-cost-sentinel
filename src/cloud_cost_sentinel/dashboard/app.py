@@ -32,6 +32,16 @@ COLOR_ANOMALY = "#d03b3b"
 COLOR_BUDGET_LINE = "#898781"
 
 
+def escape_dollar_signs(text: str) -> str:
+    """Escape ``$`` so Streamlit markdown shows dollar amounts as text.
+
+    Unescaped, a message with two amounts (``Actual: $187.44 | Expected:
+    $42.10``) has everything between the two ``$`` rendered as LaTeX math,
+    dropping both dollar signs.
+    """
+    return text.replace("$", r"\$")
+
+
 def build_daily_trend_frame(cost_df: pd.DataFrame, anomalies: list[Anomaly]) -> pd.DataFrame:
     """One row per calendar day of total spend, flagged if any service had an
     anomaly that day.
@@ -172,7 +182,7 @@ def render() -> None:
     )
     for alert in [*result.alerts_sent, *result.alerts_skipped]:
         with st.expander(alert.dedup_key):
-            st.write(alert.message)
+            st.markdown(escape_dollar_signs(alert.message))
 
 
 render()
