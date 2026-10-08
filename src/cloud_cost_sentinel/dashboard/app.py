@@ -162,7 +162,7 @@ def render() -> None:
     st.subheader("Alerts")
     st.write(
         f"Sent: {len(result.alerts_sent)}  |  "
-        f"Skipped (throttled or no webhook configured): {len(result.alerts_skipped)}"
+        f"Not sent (throttled, no webhook configured, or send failed): {len(result.alerts_skipped)}"
     )
     for alert in [*result.alerts_sent, *result.alerts_skipped]:
         with st.expander(alert.dedup_key):

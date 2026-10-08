@@ -98,3 +98,45 @@ def test_main_prints_report_and_returns_zero(capsys, monkeypatch):
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "Cloud Cost Sentinel" in captured.out
+
+
+def test_main_reports_missing_file_without_traceback(capsys, tmp_path):
+    missing = tmp_path / "nope.csv"
+    exit_code = main(["--anomaly-data", str(missing)])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"ccs: error: CUR file not found: {missing}" in captured.err
+    assert "repository root" not in captured.err
+
+
+def test_main_hints_at_repo_root_when_default_fixture_is_missing(capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    exit_code = main([])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert f"CUR file not found: {DEFAULT_ANOMALY_DATA_PATH}" in captured.err
+    assert "relative to the repository root" in captured.err
+
+
+def test_main_reports_malformed_cur_file_without_traceback(capsys, tmp_path):
+    bad_csv = tmp_path / "bad.csv"
+    bad_csv.write_text("a,b\n1,2\n")
+    exit_code = main(["--anomaly-data", str(bad_csv)])
+
+    assert exit_code == 1
+    assert "ccs: error: CUR file is missing required columns" in capsys.readouterr().err
+
+
+def test_main_reports_too_short_forecast_history_without_traceback(capsys):
+    exit_code = main(["--forecast-data", str(DEFAULT_ANOMALY_DATA_PATH)])
+
+    assert exit_code == 1
+    assert "ccs: error: Need at least 14 days of cost history to forecast, got 10." in capsys.readouterr().err
+
+
+def test_format_report_labels_unsent_alerts_accurately(no_webhook_settings):
+    report = format_report(run_pipeline(settings=no_webhook_settings))
+    assert "Alerts not sent (throttled, no webhook configured, or send failed): 2" in report

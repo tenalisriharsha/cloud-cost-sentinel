@@ -112,3 +112,4 @@ def test_dashboard_app_runs_end_to_end_without_error():
     assert not at.exception
     assert at.title[0].value == "Cloud Cost Sentinel"
     assert len(at.metric) == 3
+    assert any("Not sent (throttled, no webhook configured, or send failed)" in md.value for md in at.markdown)
