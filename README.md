@@ -7,7 +7,10 @@ dashboard to tie it all together.
 
 ## Preview
 
-The Streamlit dashboard running against the sample CUR fixtures:
+The Streamlit dashboard running against the sample CUR fixtures. These
+images are captured from the running app and a real `ccs` run by
+`scripts/capture_dashboard_screenshots.py` and
+`scripts/render_cli_screenshot.py`:
 
 ![Dashboard overview — metrics, daily spend trend, forecast vs. budget, and alerts](docs/screenshots/01-overview.png)
 
