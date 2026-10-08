@@ -98,9 +98,15 @@ def test_build_forecast_figure_includes_actual_and_forecast_series():
     assert "Forecast range" in trace_names
 
 
-def test_build_forecast_figure_draws_a_budget_reference_line():
+def test_build_forecast_figure_draws_budget_line_at_its_daily_equivalent():
+    # The y-axis is spend per day, so a 1000 USD budget over a 5-day forecast
+    # must be drawn at 200/day; drawing it at 1000 made an over-budget
+    # forecast look far under budget.
     fig = build_forecast_figure(_cost_df(), _forecast(), budget_usd=1000.0)
-    assert any(shape.y0 == 1000.0 for shape in fig.layout.shapes)
+
+    budget_lines = [shape for shape in fig.layout.shapes if shape.y0 == shape.y1]
+    assert [shape.y0 for shape in budget_lines] == [pytest.approx(200.0)]
+    assert fig.layout.annotations[0].text == "Budget per day ($1,000 / 5 days)"
 
 
 @pytest.mark.slow

@@ -70,9 +70,14 @@ def build_trend_figure(trend: pd.DataFrame) -> go.Figure:
 
 
 def build_forecast_figure(history_df: pd.DataFrame, forecast: list[ForecastPoint], budget_usd: float) -> go.Figure:
-    """A single cost-axis chart: historical actual spend, the projected
-    forecast with its uncertainty band, and the configured monthly budget as
-    a flat reference line.
+    """A single daily-cost-axis chart: historical actual spend, the projected
+    forecast with its uncertainty band, and the budget as a flat reference
+    line.
+
+    The y-axis is spend per day, so the budget line is drawn at its daily
+    equivalent (``budget_usd`` spread evenly over the forecast's days, the
+    same period :func:`calculate_budget_drift` compares it against), not at
+    the monthly total.
     """
     history = daily_total_costs(history_df)
     forecast_dates = [point.usage_date for point in forecast]
@@ -110,10 +115,11 @@ def build_forecast_figure(history_df: pd.DataFrame, forecast: list[ForecastPoint
             line=dict(color=COLOR_FORECAST, width=2, dash="dash"),
         )
     )
+    daily_budget = budget_usd / len(forecast) if forecast else budget_usd
     fig.add_hline(
-        y=budget_usd,
+        y=daily_budget,
         line=dict(color=COLOR_BUDGET_LINE, dash="dot"),
-        annotation_text="Monthly budget",
+        annotation_text=f"Budget per day (${budget_usd:,.0f} / {len(forecast)} days)",
         annotation_position="top left",
     )
     fig.update_layout(
