@@ -22,7 +22,7 @@ The Streamlit dashboard running against the sample CUR fixtures:
 
 ![Anomaly detail table](docs/screenshots/03-anomaly-detail.png)
 
-**Forecast vs. budget** — Prophet's forecast against the configured monthly budget:
+**Forecast vs. budget** — Prophet's daily forecast against the configured monthly budget, spread evenly over the forecast's days:
 
 ![Forecast vs budget chart](docs/screenshots/04-forecast-vs-budget.png)
 
@@ -53,8 +53,9 @@ night, test results, and known limitations.
 - **Forecasting** — project daily spend forward with Prophet, and compare
   the forecast total against the configured monthly budget.
 - **Alerting** — format anomaly and budget-drift alerts and post them to
-  Slack, with in-memory throttling so the same condition doesn't re-page on
-  every run.
+  Slack, with an in-memory throttle that dedupes repeat alerts within one
+  process (each `ccs` invocation starts with an empty throttle, so it does
+  not dedupe across scheduled runs yet).
 - **CLI** — a single `ccs` command chains ingestion, anomaly detection,
   forecasting, and alerting into one end-to-end run.
 - **Dashboard** — a Streamlit app visualizing daily spend trends with
@@ -85,11 +86,14 @@ streamlit run src/cloud_cost_sentinel/dashboard/app.py   # interactive dashboard
 ```
 
 `ccs` prints a text report: anomalies found, the forecast vs. budget, and how
-many alerts were sent vs. skipped (no Slack webhook is configured by
-default, so alerts are formatted and throttled but not actually posted —
-set `CCS_SLACK_WEBHOOK_URL` to send for real). Pass `--anomaly-data` /
+many alerts were sent vs. not sent (no Slack webhook is configured by
+default, so alerts are formatted but not actually posted — set
+`CCS_SLACK_WEBHOOK_URL` to send for real; a failed send is logged as a
+warning and counted as not sent). Pass `--anomaly-data` /
 `--forecast-data` to point either step at a different CUR CSV; see
-`ccs --help`.
+`ccs --help`. The default fixture paths are relative, so run `ccs` from the
+repository root. A missing or malformed CUR file, or forecast data with
+fewer than 14 days of history, prints `ccs: error: ...` and exits 1.
 
 ## Usage
 
@@ -141,9 +145,14 @@ from cloud_cost_sentinel.forecasting.prophet_forecast import (
     forecast_daily_costs,
 )
 
+from cloud_cost_sentinel.ingestion.cur_loader import load_cost_dataframe
+
+# Needs at least 14 days of history, so use the 45-day forecast fixture.
+forecast_df = load_cost_dataframe("data/sample/sample_cur_forecast.csv")
+
 # One ForecastPoint per day, summed across every service, `periods` days
 # beyond the input history's last day (defaults to Settings.forecast_horizon_days).
-forecast = forecast_daily_costs(df, periods=30)
+forecast = forecast_daily_costs(forecast_df, periods=30)
 
 # Compares the forecast's total against Settings.monthly_budget_usd.
 drift = calculate_budget_drift(forecast)
@@ -188,8 +197,9 @@ if drift.over_budget:
 budget drift). `send_alert` posts that message to the Slack webhook
 configured via `CCS_SLACK_WEBHOOK_URL`, returning `False` without making a
 network call if no webhook is configured or if an `AlertThrottle` has
-already seen that `dedup_key` — so the same condition doesn't re-page on
-every run. There's no persistence layer yet, so a throttle only lives as
+already seen that `dedup_key` — so the same condition doesn't re-page
+while the throttle is alive. It also returns `False` (and logs a warning)
+if the webhook is unreachable or rejects the message. There's no persistence layer yet, so a throttle only lives as
 long as the process holding it. `slack_sdk` is imported lazily inside
 `send_alert`, so formatting and throttling work without the `alerts` extra
 installed; pass a `webhook_client` directly to `send_alert` to test against
@@ -224,7 +234,8 @@ streamlit run src/cloud_cost_sentinel/dashboard/app.py
 The dashboard calls `run_pipeline()` for its numbers and reloads the same
 two CUR fixtures to build two charts: a daily-spend line with anomaly days
 marked, and a forecast line (with its uncertainty band) against a flat
-budget reference line, plus the anomalies table and the sent/skipped alert
+budget-per-day reference line (the monthly budget divided by the forecast's
+days), plus the anomalies table and the sent/skipped alert
 list. The chart-building functions (`build_daily_trend_frame`,
 `build_trend_figure`, `build_forecast_figure`) are plain pandas/plotly and
 importable without Streamlit itself, so they're unit-tested directly;
