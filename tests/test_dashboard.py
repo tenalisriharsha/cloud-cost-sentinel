@@ -1,3 +1,5 @@
+import re
+import tomllib
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -11,7 +13,8 @@ from cloud_cost_sentinel.dashboard.app import (
 )
 from cloud_cost_sentinel.models import Anomaly, ForecastPoint
 
-APP_PATH = Path(__file__).resolve().parent.parent / "src" / "cloud_cost_sentinel" / "dashboard" / "app.py"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+APP_PATH = REPO_ROOT / "src" / "cloud_cost_sentinel" / "dashboard" / "app.py"
 
 
 def _cost_df() -> pd.DataFrame:
@@ -107,6 +110,16 @@ def test_build_forecast_figure_draws_budget_line_at_its_daily_equivalent():
     budget_lines = [shape for shape in fig.layout.shapes if shape.y0 == shape.y1]
     assert [shape.y0 for shape in budget_lines] == [pytest.approx(200.0)]
     assert fig.layout.annotations[0].text == "Budget per day ($1,000 / 5 days)"
+
+
+def test_declared_streamlit_floor_supports_width_stretch():
+    # app.py passes width="stretch" to st.plotly_chart/st.dataframe, which
+    # raises TypeError on Streamlit releases before 1.49.
+    assert 'width="stretch"' in APP_PATH.read_text()
+    extras = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["optional-dependencies"]
+    (streamlit_spec,) = [spec for spec in extras["dashboard"] if spec.startswith("streamlit")]
+    floor = tuple(int(part) for part in re.fullmatch(r"streamlit>=([\d.]+)", streamlit_spec).group(1).split("."))
+    assert floor >= (1, 49)
 
 
 @pytest.mark.slow
