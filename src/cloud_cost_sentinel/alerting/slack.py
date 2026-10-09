@@ -9,6 +9,7 @@ callers that only need formatting or throttling.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from cloud_cost_sentinel.config import Settings, get_settings
@@ -16,6 +17,8 @@ from cloud_cost_sentinel.models import Anomaly, BudgetAlert, BudgetDrift
 
 if TYPE_CHECKING:
     from slack_sdk.webhook import WebhookClient
+
+logger = logging.getLogger(__name__)
 
 
 def format_anomaly_alert(anomaly: Anomaly) -> BudgetAlert:
@@ -77,7 +80,10 @@ def send_alert(
     this ``dedup_key`` was already sent, or if no webhook is configured
     (neither ``webhook_client`` nor ``Settings.slack_webhook_url``).
     Returns ``True`` once the webhook call succeeds, and records the send
-    with ``throttle`` if one was given.
+    with ``throttle`` if one was given. A non-200 response, an unreachable
+    webhook, or a malformed webhook URL logs a warning and returns
+    ``False`` rather than raising, so one failed send doesn't abort the
+    remaining alerts.
     """
     if throttle is not None and not throttle.should_send(alert):
         return False
@@ -90,8 +96,14 @@ def send_alert(
 
         webhook_client = _WebhookClient(resolved_settings.slack_webhook_url)
 
-    response = webhook_client.send(text=alert.message)
+    try:
+        response = webhook_client.send(text=alert.message)
+    except (OSError, ValueError) as exc:
+        logger.warning("Slack alert %s failed to send: %s", alert.dedup_key, exc)
+        return False
     sent = response.status_code == 200
+    if not sent:
+        logger.warning("Slack alert %s was rejected with HTTP %s", alert.dedup_key, response.status_code)
     if sent and throttle is not None:
         throttle.mark_sent(alert)
     return sent

@@ -1,4 +1,7 @@
+import subprocess
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -155,3 +158,21 @@ def test_calculate_budget_drift_flags_under_budget():
 def test_calculate_budget_drift_rejects_empty_forecast():
     with pytest.raises(ValueError):
         calculate_budget_drift([], settings=Settings())
+
+
+@pytest.mark.slow
+def test_first_fit_in_a_fresh_process_does_not_print_cmdstanpy_info_logs():
+    # Needs a fresh interpreter: cmdstanpy only resets its logger level on
+    # the first fit in a process, which an earlier test may already have run.
+    script = (
+        "from cloud_cost_sentinel.cli import DEFAULT_FORECAST_DATA_PATH\n"
+        "from cloud_cost_sentinel.forecasting.prophet_forecast import forecast_daily_costs\n"
+        "from cloud_cost_sentinel.ingestion.cur_loader import load_cost_dataframe\n"
+        "forecast_daily_costs(load_cost_dataframe(DEFAULT_FORECAST_DATA_PATH), periods=3)\n"
+    )
+    repo_root = Path(__file__).resolve().parent.parent
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=repo_root, capture_output=True, text=True, check=True
+    )
+
+    assert "cmdstanpy - INFO" not in completed.stderr

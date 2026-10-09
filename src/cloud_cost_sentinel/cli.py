@@ -12,6 +12,7 @@ same, larger CUR export.
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -121,7 +122,7 @@ def format_report(result: PipelineResult) -> str:
 
     lines.append("")
     lines.append(f"Alerts sent: {len(result.alerts_sent)}")
-    lines.append(f"Alerts skipped (throttled or no webhook configured): {len(result.alerts_skipped)}")
+    lines.append(f"Alerts not sent (throttled, no webhook configured, or send failed): {len(result.alerts_skipped)}")
 
     return "\n".join(lines)
 
@@ -148,7 +149,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
-    result = run_pipeline(anomaly_data_path=args.anomaly_data, forecast_data_path=args.forecast_data)
+    try:
+        result = run_pipeline(anomaly_data_path=args.anomaly_data, forecast_data_path=args.forecast_data)
+    except FileNotFoundError as exc:
+        print(f"ccs: error: CUR file not found: {exc.filename}", file=sys.stderr)
+        if Path(exc.filename) in (DEFAULT_ANOMALY_DATA_PATH, DEFAULT_FORECAST_DATA_PATH):
+            print(
+                "ccs: the default sample paths are relative to the repository root; "
+                "run ccs from there or pass --anomaly-data/--forecast-data",
+                file=sys.stderr,
+            )
+        return 1
+    except (OSError, ValueError) as exc:
+        # ValueError covers malformed CUR files (missing columns, bad rows)
+        # and too little history to forecast from.
+        print(f"ccs: error: {exc}", file=sys.stderr)
+        return 1
     print(format_report(result))
     return 0
 

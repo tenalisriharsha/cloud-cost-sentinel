@@ -59,9 +59,13 @@ def forecast_daily_costs(
     # Imported lazily: prophet (and its cmdstanpy/matplotlib deps) is a heavy
     # optional dependency (the `forecast` extra), not needed by ingestion,
     # analysis, or anything that doesn't actually call this function.
+    from cmdstanpy.utils import get_logger as get_cmdstanpy_logger
     from prophet import Prophet
 
-    logging.getLogger("cmdstanpy").setLevel(logging.WARNING)
+    # cmdstanpy's get_logger() resets its logger to DEBUG the first time it
+    # runs (during fit), so call it before lowering the level or the first
+    # fit in a process still prints "Chain [1] start processing".
+    get_cmdstanpy_logger().setLevel(logging.WARNING)
     logging.getLogger("prophet").setLevel(logging.WARNING)
 
     model = Prophet(interval_width=0.8)

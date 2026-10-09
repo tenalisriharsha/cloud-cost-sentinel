@@ -21,7 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 forecast = ["prophet>=1.1"]
 alerts = ["slack-sdk>=3.27"]
-dashboard = ["streamlit>=1.37", "plotly>=5.22"]
+dashboard = ["streamlit>=1.49", "plotly>=5.22"]
 aws = ["boto3>=1.34"]
 dev = [
     "pytest>=8.2",

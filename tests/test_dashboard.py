@@ -1,3 +1,5 @@
+import re
+import tomllib
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -8,10 +10,12 @@ from cloud_cost_sentinel.dashboard.app import (
     build_daily_trend_frame,
     build_forecast_figure,
     build_trend_figure,
+    escape_dollar_signs,
 )
 from cloud_cost_sentinel.models import Anomaly, ForecastPoint
 
-APP_PATH = Path(__file__).resolve().parent.parent / "src" / "cloud_cost_sentinel" / "dashboard" / "app.py"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+APP_PATH = REPO_ROOT / "src" / "cloud_cost_sentinel" / "dashboard" / "app.py"
 
 
 def _cost_df() -> pd.DataFrame:
@@ -98,9 +102,29 @@ def test_build_forecast_figure_includes_actual_and_forecast_series():
     assert "Forecast range" in trace_names
 
 
-def test_build_forecast_figure_draws_a_budget_reference_line():
+def test_build_forecast_figure_draws_budget_line_at_its_daily_equivalent():
+    # The y-axis is spend per day, so a 1000 USD budget over a 5-day forecast
+    # must be drawn at 200/day; drawing it at 1000 made an over-budget
+    # forecast look far under budget.
     fig = build_forecast_figure(_cost_df(), _forecast(), budget_usd=1000.0)
-    assert any(shape.y0 == 1000.0 for shape in fig.layout.shapes)
+
+    budget_lines = [shape for shape in fig.layout.shapes if shape.y0 == shape.y1]
+    assert [shape.y0 for shape in budget_lines] == [pytest.approx(200.0)]
+    assert fig.layout.annotations[0].text == "Budget per day ($1,000 / 5 days)"
+
+
+def test_escape_dollar_signs_prevents_latex_math_between_amounts():
+    assert escape_dollar_signs("Actual: $187.44  |  Expected: $42.10") == r"Actual: \$187.44  |  Expected: \$42.10"
+
+
+def test_declared_streamlit_floor_supports_width_stretch():
+    # app.py passes width="stretch" to st.plotly_chart/st.dataframe, which
+    # raises TypeError on Streamlit releases before 1.49.
+    assert 'width="stretch"' in APP_PATH.read_text()
+    extras = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["optional-dependencies"]
+    (streamlit_spec,) = [spec for spec in extras["dashboard"] if spec.startswith("streamlit")]
+    floor = tuple(int(part) for part in re.fullmatch(r"streamlit>=([\d.]+)", streamlit_spec).group(1).split("."))
+    assert floor >= (1, 49)
 
 
 @pytest.mark.slow
@@ -112,3 +136,6 @@ def test_dashboard_app_runs_end_to_end_without_error():
     assert not at.exception
     assert at.title[0].value == "Cloud Cost Sentinel"
     assert len(at.metric) == 3
+    assert any("Not sent (throttled, no webhook configured, or send failed)" in md.value for md in at.markdown)
+    alert_bodies = [md.value for expander in at.expander for md in expander.markdown]
+    assert any(r"Actual: \$187.44" in body for body in alert_bodies)
