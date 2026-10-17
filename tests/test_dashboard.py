@@ -136,6 +136,6 @@ def test_dashboard_app_runs_end_to_end_without_error():
     assert not at.exception
     assert at.title[0].value == "Cloud Cost Sentinel"
     assert len(at.metric) == 3
-    assert any("Not sent (throttled, no webhook configured, or send failed)" in md.value for md in at.markdown)
+    assert any("Skipped (throttled or no webhook configured)" in md.value for md in at.markdown)
     alert_bodies = [md.value for expander in at.expander for md in expander.markdown]
     assert any(r"Actual: \$187.44" in body for body in alert_bodies)
