@@ -45,6 +45,7 @@ class PipelineResult:
     drift: BudgetDrift
     alerts_sent: list[BudgetAlert] = field(default_factory=list)
     alerts_skipped: list[BudgetAlert] = field(default_factory=list)
+    alerts_failed: list[BudgetAlert] = field(default_factory=list)
 
 
 def run_pipeline(
@@ -62,9 +63,17 @@ def run_pipeline(
     it misses the sample fixture's deliberate spike at the default
     threshold (see ``analysis/anomaly.py``). A budget-drift alert is only
     sent when the forecast is actually over budget.
+
+    An alert that ``send_alert`` skips lands in ``alerts_skipped`` if no
+    webhook is configured or an ``AlertThrottle`` already saw it — neither
+    is a failure, since both are expected, intentional states. An alert
+    that ``send_alert`` skips despite alerting being configured and not
+    throttled lands in ``alerts_failed`` instead: the webhook rejected it
+    or was unreachable, which is what should make ``ccs`` exit non-zero.
     """
     resolved_settings = settings or get_settings()
     resolved_throttle = throttle or AlertThrottle()
+    is_configured = webhook_client is not None or bool(resolved_settings.slack_webhook_url)
 
     anomaly_df = load_cost_dataframe(anomaly_data_path)
     anomalies = detect_anomalies_rolling_iqr(anomaly_df)
@@ -75,15 +84,22 @@ def run_pipeline(
 
     alerts_sent: list[BudgetAlert] = []
     alerts_skipped: list[BudgetAlert] = []
+    alerts_failed: list[BudgetAlert] = []
 
     def _dispatch(alert: BudgetAlert) -> None:
+        was_throttled = not resolved_throttle.should_send(alert)
         sent = send_alert(
             alert,
             throttle=resolved_throttle,
             settings=resolved_settings,
             webhook_client=webhook_client,
         )
-        (alerts_sent if sent else alerts_skipped).append(alert)
+        if sent:
+            alerts_sent.append(alert)
+        elif was_throttled or not is_configured:
+            alerts_skipped.append(alert)
+        else:
+            alerts_failed.append(alert)
 
     for anomaly in anomalies:
         _dispatch(format_anomaly_alert(anomaly))
@@ -97,6 +113,7 @@ def run_pipeline(
         drift=drift,
         alerts_sent=alerts_sent,
         alerts_skipped=alerts_skipped,
+        alerts_failed=alerts_failed,
     )
 
 
@@ -122,7 +139,8 @@ def format_report(result: PipelineResult) -> str:
 
     lines.append("")
     lines.append(f"Alerts sent: {len(result.alerts_sent)}")
-    lines.append(f"Alerts not sent (throttled, no webhook configured, or send failed): {len(result.alerts_skipped)}")
+    lines.append(f"Alerts skipped (throttled or no webhook configured): {len(result.alerts_skipped)}")
+    lines.append(f"Alerts failed to send: {len(result.alerts_failed)}")
 
     return "\n".join(lines)
 
@@ -166,6 +184,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ccs: error: {exc}", file=sys.stderr)
         return 1
     print(format_report(result))
+    if result.alerts_failed:
+        print(
+            f"ccs: error: {len(result.alerts_failed)} alert(s) configured to send but failed delivery; "
+            "see warnings above",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

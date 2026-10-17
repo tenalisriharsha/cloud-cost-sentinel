@@ -139,4 +139,57 @@ def test_main_reports_too_short_forecast_history_without_traceback(capsys):
 
 def test_format_report_labels_unsent_alerts_accurately(no_webhook_settings):
     report = format_report(run_pipeline(settings=no_webhook_settings))
-    assert "Alerts not sent (throttled, no webhook configured, or send failed): 2" in report
+    assert "Alerts skipped (throttled or no webhook configured): 2" in report
+    assert "Alerts failed to send: 0" in report
+
+
+class _FailingWebhookClient:
+    """Simulates a configured webhook that rejects every send."""
+
+    def __init__(self, status_code: int = 500) -> None:
+        self.status_code = status_code
+        self.calls: list[str] = []
+
+    def send(self, *, text: str) -> _FakeWebhookResponse:
+        self.calls.append(text)
+        return _FakeWebhookResponse(self.status_code)
+
+
+def test_run_pipeline_counts_configured_delivery_failures_separately_from_skips(no_webhook_settings):
+    result = run_pipeline(settings=no_webhook_settings, webhook_client=_FailingWebhookClient())
+
+    assert result.alerts_sent == []
+    assert result.alerts_skipped == []
+    assert len(result.alerts_failed) >= 1
+
+
+def test_run_pipeline_does_not_count_throttled_alerts_as_failures(no_webhook_settings):
+    throttle = AlertThrottle()
+    client = _FakeWebhookClient(status_code=200)
+    first = run_pipeline(settings=no_webhook_settings, webhook_client=client, throttle=throttle)
+    assert len(first.alerts_sent) >= 1
+
+    # Second run's client would reject every send, but every alert is already
+    # throttled, so it's never called and the run isn't counted as a failure.
+    second = run_pipeline(settings=no_webhook_settings, webhook_client=_FailingWebhookClient(), throttle=throttle)
+
+    assert second.alerts_failed == []
+    assert len(second.alerts_skipped) == len(first.alerts_sent)
+
+
+def test_main_returns_nonzero_when_configured_alert_delivery_fails(monkeypatch, capsys):
+    monkeypatch.setenv("CCS_SLACK_WEBHOOK_URL", "http://127.0.0.1:1/unreachable-hook")
+    exit_code = main([])
+
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert "Cloud Cost Sentinel" in captured.out
+    assert "alert(s) configured to send but failed delivery" in captured.err
+
+
+def test_main_returns_zero_when_no_webhook_configured(monkeypatch, capsys):
+    monkeypatch.delenv("CCS_SLACK_WEBHOOK_URL", raising=False)
+    exit_code = main([])
+
+    assert exit_code == 0
+    assert capsys.readouterr().err == ""
