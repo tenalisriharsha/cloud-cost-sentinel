@@ -89,14 +89,24 @@ streamlit run src/cloud_cost_sentinel/dashboard/app.py   # interactive dashboard
 ```
 
 `ccs` prints a text report: anomalies found, the forecast vs. budget, and how
-many alerts were sent vs. not sent (no Slack webhook is configured by
+many alerts were sent, skipped, or failed (no Slack webhook is configured by
 default, so alerts are formatted but not actually posted — set
-`CCS_SLACK_WEBHOOK_URL` to send for real; a failed send is logged as a
-warning and counted as not sent). Pass `--anomaly-data` /
+`CCS_SLACK_WEBHOOK_URL` to send for real). Pass `--anomaly-data` /
 `--forecast-data` to point either step at a different CUR CSV; see
 `ccs --help`. The default fixture paths are relative, so run `ccs` from the
 repository root. A missing or malformed CUR file, or forecast data with
 fewer than 14 days of history, prints `ccs: error: ...` and exits 1.
+
+**Exit codes and alerting.** An alert that's skipped because no webhook is
+configured, or because an `AlertThrottle` already saw it this run, is not a
+failure — both are expected, intentional states — so it doesn't affect the
+exit code. An alert that `ccs` *tried* to send (a webhook is configured and
+the alert wasn't throttled) but that the webhook rejected or couldn't reach
+is a delivery failure: it's logged as a warning, counted separately from
+the skipped alerts in the report, and makes `ccs` print an error to stderr
+and exit 1 — otherwise a cron job could have every alert fail to send and
+still report success. See `run_pipeline`'s `PipelineResult.alerts_failed`
+below for the programmatic form.
 
 ## Usage
 
@@ -226,7 +236,11 @@ on it, then formats and dispatches a `BudgetAlert` for every anomaly and
 (only if `drift.over_budget`) one for the budget drift — accepting the same
 `throttle` and `webhook_client` injection points as `send_alert`, so it's
 tested with a fake client (see `tests/test_cli.py`) exactly like
-`alerting/slack.py` is.
+`alerting/slack.py` is. Each dispatched alert lands in exactly one of
+`PipelineResult.alerts_sent`, `.alerts_skipped` (no webhook configured, or
+throttled), or `.alerts_failed` (a webhook was configured, the alert wasn't
+throttled, and the send still failed) — `main` exits 1 when `alerts_failed`
+is non-empty.
 
 ### Dashboard
 
