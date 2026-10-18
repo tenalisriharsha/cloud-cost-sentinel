@@ -56,9 +56,9 @@ night, test results, and known limitations.
 - **Forecasting** — project daily spend forward with Prophet, and compare
   the forecast total against the configured monthly budget.
 - **Alerting** — format anomaly and budget-drift alerts and post them to
-  Slack, with an in-memory throttle that dedupes repeat alerts within one
-  process (each `ccs` invocation starts with an empty throttle, so it does
-  not dedupe across scheduled runs yet).
+  Slack, with a throttle that dedupes repeat alerts within a TTL window;
+  set `CCS_ALERT_THROTTLE_PATH` to persist that state to disk so scheduled
+  `ccs` runs dedupe across invocations, not just within one process.
 - **CLI** — a single `ccs` command chains ingestion, anomaly detection,
   forecasting, and alerting into one end-to-end run.
 - **Dashboard** — a Streamlit app visualizing daily spend trends with
@@ -184,7 +184,7 @@ from cloud_cost_sentinel.alerting import (
     send_alert,
 )
 
-throttle = AlertThrottle()  # in-memory; create once and reuse across runs
+throttle = AlertThrottle()  # in-memory only; create once and reuse across calls
 
 for anomaly in rolling_anomalies:
     alert = format_anomaly_alert(anomaly)
@@ -200,13 +200,30 @@ if drift.over_budget:
 budget drift). `send_alert` posts that message to the Slack webhook
 configured via `CCS_SLACK_WEBHOOK_URL`, returning `False` without making a
 network call if no webhook is configured or if an `AlertThrottle` has
-already seen that `dedup_key` — so the same condition doesn't re-page
-while the throttle is alive. It also returns `False` (and logs a warning)
-if the webhook is unreachable or rejects the message. There's no persistence layer yet, so a throttle only lives as
-long as the process holding it. `slack_sdk` is imported lazily inside
-`send_alert`, so formatting and throttling work without the `alerts` extra
-installed; pass a `webhook_client` directly to `send_alert` to test against
-a fake client instead of a real Slack workspace (see `tests/test_slack.py`).
+already seen that `dedup_key` within its TTL — so the same condition
+doesn't re-page on every run. It also returns `False` (and logs a warning)
+if the webhook is unreachable or rejects the message. `slack_sdk` is
+imported lazily inside `send_alert`, so formatting and throttling work
+without the `alerts` extra installed; pass a `webhook_client` directly to
+`send_alert` to test against a fake client instead of a real Slack
+workspace (see `tests/test_slack.py`).
+
+By default `AlertThrottle()` keeps its dedup state in memory, so it only
+dedupes within the process that holds it — fine for a single script, but a
+scheduled `ccs` run starts a new process every time, so a fresh in-memory
+throttle re-pages on every invocation. Pass `path=...` (or set
+`CCS_ALERT_THROTTLE_PATH`, which `run_pipeline`/`ccs` read automatically) to
+persist the dedup keys and their last-sent timestamps as JSON, so separate
+runs that point at the same file share throttle state:
+
+```python
+throttle = AlertThrottle(path="/var/lib/ccs/alert_throttle.json")
+```
+
+A key stops being throttled once `ttl_seconds` have passed since it was
+last sent (default 86400, i.e. 24h; override via the constructor or
+`CCS_ALERT_THROTTLE_TTL_SECONDS`), so a persistent condition still re-pages
+eventually instead of being silenced forever.
 
 ### CLI
 
