@@ -64,7 +64,10 @@ def run_pipeline(
     sent when the forecast is actually over budget.
     """
     resolved_settings = settings or get_settings()
-    resolved_throttle = throttle or AlertThrottle()
+    resolved_throttle = throttle or AlertThrottle(
+        path=resolved_settings.alert_throttle_path,
+        ttl_seconds=resolved_settings.alert_throttle_ttl_seconds,
+    )
 
     anomaly_df = load_cost_dataframe(anomaly_data_path)
     anomalies = detect_anomalies_rolling_iqr(anomaly_df)
