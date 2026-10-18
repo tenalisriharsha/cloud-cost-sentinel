@@ -1,3 +1,4 @@
+import json
 import logging
 import socket
 from datetime import date
@@ -91,6 +92,86 @@ def test_alert_throttle_distinguishes_different_dedup_keys():
     throttle.mark_sent(anomaly_alert)
 
     assert throttle.should_send(drift_alert) is True
+
+
+def test_alert_throttle_persists_across_instances(tmp_path):
+    state_path = tmp_path / "throttle.json"
+    alert = format_anomaly_alert(_anomaly())
+
+    first = AlertThrottle(path=state_path)
+    assert first.should_send(alert) is True
+    first.mark_sent(alert)
+
+    # A brand-new process would construct a fresh AlertThrottle; pointing it
+    # at the same path should see the prior run's state instead of re-sending.
+    second = AlertThrottle(path=state_path)
+    assert second.should_send(alert) is False
+
+
+def test_alert_throttle_writes_json_state_file(tmp_path):
+    state_path = tmp_path / "nested" / "throttle.json"
+    alert = format_anomaly_alert(_anomaly())
+
+    throttle = AlertThrottle(path=state_path)
+    throttle.mark_sent(alert)
+
+    assert state_path.exists()
+    saved = json.loads(state_path.read_text())
+    assert alert.dedup_key in saved
+
+
+def test_alert_throttle_resends_after_ttl_expires(tmp_path, monkeypatch):
+    state_path = tmp_path / "throttle.json"
+    alert = format_anomaly_alert(_anomaly())
+
+    current_time = 1_000_000.0
+    monkeypatch.setattr("cloud_cost_sentinel.alerting.slack.time.time", lambda: current_time)
+
+    throttle = AlertThrottle(path=state_path, ttl_seconds=60)
+    throttle.mark_sent(alert)
+    assert throttle.should_send(alert) is False
+
+    current_time += 61
+    assert throttle.should_send(alert) is True
+
+    # A new instance loading the same (now-stale) state should also allow a resend.
+    reloaded = AlertThrottle(path=state_path, ttl_seconds=60)
+    assert reloaded.should_send(alert) is True
+
+
+def test_alert_throttle_without_path_does_not_touch_disk(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    alert = format_anomaly_alert(_anomaly())
+
+    throttle = AlertThrottle()
+    throttle.mark_sent(alert)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_alert_throttle_ignores_corrupt_state_file(tmp_path, caplog):
+    state_path = tmp_path / "throttle.json"
+    state_path.write_text("not json")
+    alert = format_anomaly_alert(_anomaly())
+
+    with caplog.at_level(logging.WARNING, logger="cloud_cost_sentinel.alerting.slack"):
+        throttle = AlertThrottle(path=state_path)
+
+    assert throttle.should_send(alert) is True
+
+
+def test_send_alert_persists_throttle_to_configured_path(tmp_path):
+    state_path = tmp_path / "throttle.json"
+    client = _FakeWebhookClient(status_code=200)
+    alert = format_anomaly_alert(_anomaly())
+    throttle = AlertThrottle(path=state_path)
+
+    first_result = send_alert(alert, throttle=throttle, webhook_client=client)
+    second_result = send_alert(alert, throttle=AlertThrottle(path=state_path), webhook_client=client)
+
+    assert first_result is True
+    assert second_result is False
+    assert client.calls == [alert.message]
 
 
 def test_send_alert_posts_message_and_returns_true_on_success():

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     sample_data_dir: Path = Path("data/sample")
 
     slack_webhook_url: str | None = None
+    alert_throttle_path: Path | None = None
+    alert_throttle_ttl_seconds: float = Field(default=86400.0, gt=0)
 
     aws_s3_endpoint_url: str | None = None
     aws_cur_bucket: str | None = None

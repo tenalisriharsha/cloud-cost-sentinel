@@ -74,6 +74,25 @@ def test_run_pipeline_throttle_dedupes_across_repeated_runs(no_webhook_settings)
     assert len(second.alerts_skipped) == len(first.alerts_sent)
 
 
+def test_run_pipeline_throttle_persists_across_separate_runs_via_configured_path(tmp_path):
+    """Reproduces issue #3: a scheduled `ccs` run builds a fresh AlertThrottle
+    each time via ``run_pipeline``'s default (no ``throttle`` injected). Only
+    a shared, configured ``alert_throttle_path`` — not a shared in-process
+    object — should make the second run skip alerts already sent.
+    """
+    state_path = tmp_path / "throttle.json"
+    settings = Settings(slack_webhook_url=None, alert_throttle_path=state_path)
+    client = _FakeWebhookClient(status_code=200)
+
+    first = run_pipeline(settings=settings, webhook_client=client)
+    second = run_pipeline(settings=settings, webhook_client=client)
+
+    assert len(first.alerts_sent) >= 1
+    assert second.alerts_sent == []
+    assert len(second.alerts_skipped) == len(first.alerts_sent)
+    assert state_path.exists()
+
+
 def test_format_report_includes_key_sections(no_webhook_settings):
     result = run_pipeline(settings=no_webhook_settings)
     report = format_report(result)

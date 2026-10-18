@@ -149,12 +149,16 @@ Older context, still true:
   an injected client does. Tests pass a fake client instead of monkeypatching
   network calls (see `tests/test_slack.py`), except for one test that
   verifies the real-`WebhookClient`-construction path via `monkeypatch`.
-- `AlertThrottle` is in-memory only (a `set` of `dedup_key` strings) and only
-  marks a key sent *after* a successful (HTTP 200) send — a failed send can
-  be retried on the next run. There's no persistence layer, so a throttle
-  instance needs to be created once and reused across calls (e.g. one per
-  CLI/dashboard process) to be useful; a fresh one is created per call in the
-  wild and it'll just never dedupe anything.
+- `AlertThrottle` only marks a key sent *after* a successful (HTTP 200)
+  send — a failed send can be retried on the next run. State is a
+  `dict[dedup_key, last_sent_timestamp]`, kept in-memory by default (fine
+  for a single process/tests) or persisted as JSON when constructed with
+  `path=...`, so separate `ccs` invocations (e.g. scheduled runs) sharing a
+  `Settings.alert_throttle_path` (`CCS_ALERT_THROTTLE_PATH`) dedupe across
+  runs instead of each starting fresh. A key stops being throttled once
+  `Settings.alert_throttle_ttl_seconds` (`CCS_ALERT_THROTTLE_TTL_SECONDS`,
+  default 24h) have passed since it was last sent; expired entries are
+  pruned from the file on the next write.
 - `format_budget_drift_alert` formats regardless of `drift.over_budget` —
   callers are expected to check that flag themselves before calling it,
   since a routine under-budget forecast isn't page-worthy. (Phase 5's CLI

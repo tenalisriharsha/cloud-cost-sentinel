@@ -9,7 +9,10 @@ callers that only need formatting or throttling.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cloud_cost_sentinel.config import Settings, get_settings
@@ -19,6 +22,8 @@ if TYPE_CHECKING:
     from slack_sdk.webhook import WebhookClient
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_THROTTLE_TTL_SECONDS = 86400.0
 
 
 def format_anomaly_alert(anomaly: Anomaly) -> BudgetAlert:
@@ -49,22 +54,57 @@ def format_budget_drift_alert(drift: BudgetDrift) -> BudgetAlert:
 
 
 class AlertThrottle:
-    """In-memory dedup store so the same alert condition isn't re-sent on
-    every run.
+    """Dedup store so the same alert condition isn't re-sent within a TTL
+    window.
 
     Keyed on :attr:`BudgetAlert.dedup_key` (service/date/method for
-    anomalies, forecast period for budget drift). There's no persistence
-    layer yet, so a throttle only lives as long as the process holding it.
+    anomalies, forecast period for budget drift). With no ``path``, state
+    is in-memory only and lives as long as the process holding it — fine
+    for tests and one-off scripts. Pass ``path`` to persist the dedup keys
+    and their last-sent timestamps as JSON, so a scheduled `ccs` run picks
+    up where the previous one left off instead of re-paging on every
+    invocation; a key stops being throttled once ``ttl_seconds`` have
+    passed since it was last sent.
     """
 
-    def __init__(self) -> None:
-        self._sent_keys: set[str] = set()
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        ttl_seconds: float = DEFAULT_THROTTLE_TTL_SECONDS,
+    ) -> None:
+        self._path = Path(path) if path is not None else None
+        self._ttl_seconds = ttl_seconds
+        self._sent_at: dict[str, float] = self._load()
+
+    def _load(self) -> dict[str, float]:
+        if self._path is None or not self._path.exists():
+            return {}
+        try:
+            raw = json.loads(self._path.read_text())
+        except (OSError, ValueError):
+            logger.warning("Could not read throttle state from %s; starting fresh", self._path)
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(key): float(value) for key, value in raw.items() if isinstance(value, (int, float))}
+
+    def _save(self) -> None:
+        if self._path is None:
+            return
+        now = time.time()
+        live = {key: sent_at for key, sent_at in self._sent_at.items() if now - sent_at < self._ttl_seconds}
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(json.dumps(live))
 
     def should_send(self, alert: BudgetAlert) -> bool:
-        return alert.dedup_key not in self._sent_keys
+        sent_at = self._sent_at.get(alert.dedup_key)
+        if sent_at is None:
+            return True
+        return time.time() - sent_at >= self._ttl_seconds
 
     def mark_sent(self, alert: BudgetAlert) -> None:
-        self._sent_keys.add(alert.dedup_key)
+        self._sent_at[alert.dedup_key] = time.time()
+        self._save()
 
 
 def send_alert(
