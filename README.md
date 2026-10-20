@@ -1,5 +1,7 @@
 # cloud-cost-sentinel
 
+[![CI](https://github.com/tenalisriharsha/cloud-cost-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/tenalisriharsha/cloud-cost-sentinel/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A FinOps sentinel for AWS spend. It ingests AWS Cost and Usage Report (CUR)
 data, detects spending anomalies with statistical methods, forecasts next
 month's spend with Prophet, and sends budget-drift alerts to Slack — with a
@@ -38,13 +40,6 @@ images are captured from the running app and a real `ccs` run by
 ![ccs running the full pipeline: ingest, detect, forecast, alert](docs/screenshots/06-cli-pipeline.png)
 
 </details>
-
-## Project Status
-
-This project completed its planned nightly build (Phases 1-5). See
-[PROGRESS.md](PROGRESS.md) for the architecture and phased build history, and
-[DAILY_REPORT.md](DAILY_REPORT.md) for a summary of what was built each
-night, test results, and known limitations.
 
 ## Features
 
@@ -278,6 +273,10 @@ data/sample/               # sample CUR data used by tests and local runs
 tests/                      # pytest suite
 .github/workflows/         # CI: lint (ruff) + test (pytest) on push/PR
 ```
+
+## Status
+
+Complete at version 0.1. The phase-by-phase build history is in [PROGRESS.md](PROGRESS.md) and known limitations and ideas for next steps are in [DAILY_REPORT.md](DAILY_REPORT.md).
 
 ## License
 
