@@ -1,7 +1,7 @@
 import json
 import logging
 import socket
-from datetime import date
+from datetime import date, timedelta
 from urllib.error import URLError
 
 import pytest
@@ -69,10 +69,57 @@ def test_format_anomaly_alert_includes_key_fields():
 def test_format_budget_drift_alert_includes_key_fields():
     alert = format_budget_drift_alert(_budget_drift())
     assert alert.source == "budget_drift"
-    assert alert.dedup_key == "budget_drift:2026-09-01:2026-09-30"
+    assert alert.dedup_key == "budget_drift"
+    assert "2026-09-01" in alert.message
+    assert "2026-09-30" in alert.message
     assert "1,200.00" in alert.message
     assert "1,000.00" in alert.message
     assert "20.0%" in alert.message
+
+
+@pytest.mark.parametrize("offset_days", [1, 2])
+def test_budget_drift_key_is_stable_when_forecast_window_crosses_month(offset_days):
+    first = _budget_drift().model_copy(
+        update={"period_start": date(2026, 9, 30), "period_end": date(2026, 10, 29)}
+    )
+    shifted = first.model_copy(
+        update={
+            "period_start": first.period_start + timedelta(days=offset_days),
+            "period_end": first.period_end + timedelta(days=offset_days),
+        }
+    )
+
+    assert format_budget_drift_alert(first).dedup_key == format_budget_drift_alert(shifted).dedup_key
+
+
+def test_budget_drift_throttle_persists_shifted_window_until_ttl_expires(tmp_path, monkeypatch):
+    first = _budget_drift().model_copy(
+        update={"period_start": date(2026, 9, 30), "period_end": date(2026, 10, 29)}
+    )
+    shifted = first.model_copy(
+        update={"period_start": date(2026, 10, 1), "period_end": date(2026, 10, 30)}
+    )
+    first_alert = format_budget_drift_alert(first)
+    shifted_alert = format_budget_drift_alert(shifted)
+    client = _FakeWebhookClient()
+    state_path = tmp_path / "throttle.json"
+    current_time = 1_000_000.0
+    monkeypatch.setattr("cloud_cost_sentinel.alerting.slack.time.time", lambda: current_time)
+
+    assert send_alert(first_alert, throttle=AlertThrottle(path=state_path), webhook_client=client) is True
+
+    current_time += 3600
+    reloaded = AlertThrottle(path=state_path)
+    assert reloaded.should_send(shifted_alert) is False
+    assert send_alert(shifted_alert, throttle=reloaded, webhook_client=client) is False
+    assert client.calls == [first_alert.message]
+
+    current_time += 86400 - 3600
+    expired = AlertThrottle(path=state_path)
+    assert expired.should_send(shifted_alert) is True
+    assert send_alert(shifted_alert, throttle=expired, webhook_client=client) is True
+    assert client.calls == [first_alert.message, shifted_alert.message]
+    assert AlertThrottle(path=state_path).should_send(shifted_alert) is False
 
 
 def test_alert_throttle_allows_first_send_and_blocks_repeat():
