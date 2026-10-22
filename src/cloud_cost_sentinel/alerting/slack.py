@@ -43,8 +43,11 @@ def format_budget_drift_alert(drift: BudgetDrift) -> BudgetAlert:
     Formats regardless of direction; callers should check
     ``drift.over_budget`` before calling this, since a routine under-budget
     forecast isn't a page-worthy event.
+
+    There is one configured budget forecast, so its dedup key stays stable
+    as the rolling window changes; the throttle TTL controls re-paging.
     """
-    dedup_key = f"budget_drift:{drift.period_start}:{drift.period_end}"
+    dedup_key = "budget_drift"
     message = (
         f":rotating_light: *Budget drift forecast* — {drift.period_start} to {drift.period_end}\n"
         f"Forecasted spend: ${drift.forecast_total_usd:,.2f}  |  Budget: ${drift.budget_usd:,.2f}  |  "
@@ -58,10 +61,11 @@ class AlertThrottle:
     window.
 
     Keyed on :attr:`BudgetAlert.dedup_key` (service/date/method for
-    anomalies, forecast period for budget drift). With no ``path``, state
-    is in-memory only and lives as long as the process holding it — fine
-    for tests and one-off scripts. Pass ``path`` to persist the dedup keys
-    and their last-sent timestamps as JSON, so a scheduled `ccs` run picks
+    anomalies, the stable ``budget_drift`` key for the configured forecast).
+    With no ``path``, state is in-memory only and lives as long as the
+    process holding it — fine for tests and one-off scripts. Pass ``path``
+    to persist the dedup keys and their last-sent timestamps as JSON, so a
+    scheduled `ccs` run picks
     up where the previous one left off instead of re-paging on every
     invocation; a key stops being throttled once ``ttl_seconds`` have
     passed since it was last sent.

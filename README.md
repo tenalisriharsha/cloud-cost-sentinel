@@ -191,8 +191,10 @@ if drift.over_budget:
 
 `format_anomaly_alert` and `format_budget_drift_alert` turn an `Anomaly` or
 `BudgetDrift` into a `BudgetAlert` — a formatted message plus a `dedup_key`
-(`service`/`usage_date`/`method` for anomalies, the forecast period for
-budget drift). `send_alert` posts that message to the Slack webhook
+(`service`/`usage_date`/`method` for anomalies, the stable `budget_drift`
+key for the configured budget forecast). Forecast dates stay in the
+message; shifting that window does not bypass the throttle. `send_alert`
+posts that message to the Slack webhook
 configured via `CCS_SLACK_WEBHOOK_URL`, returning `False` without making a
 network call if no webhook is configured or if an `AlertThrottle` has
 already seen that `dedup_key` within its TTL — so the same condition
@@ -219,6 +221,10 @@ A key stops being throttled once `ttl_seconds` have passed since it was
 last sent (default 86400, i.e. 24h; override via the constructor or
 `CCS_ALERT_THROTTLE_TTL_SECONDS`), so a persistent condition still re-pages
 eventually instead of being silenced forever.
+
+Older state files can still contain forecast-date keys. They are not
+migrated, so the first budget-drift alert after upgrading may be sent
+again; a successful send records the new stable key.
 
 ### CLI
 
