@@ -90,8 +90,9 @@ default, so alerts are formatted but not actually posted — set
 warning and counted as not sent). Pass `--anomaly-data` /
 `--forecast-data` to point either step at a different CUR CSV; see
 `ccs --help`. The default fixture paths are relative, so run `ccs` from the
-repository root. A missing or malformed CUR file, or forecast data with
-fewer than 14 days of history, prints `ccs: error: ...` and exits 1.
+repository root. A missing or malformed CUR file, forecast data with fewer
+than 14 days of history, or running `ccs` without the `forecast` extra
+installed, prints `ccs: error: ...` and exits 1.
 
 ## Usage
 

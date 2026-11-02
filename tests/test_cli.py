@@ -156,6 +156,26 @@ def test_main_reports_too_short_forecast_history_without_traceback(capsys):
     assert "ccs: error: Need at least 14 days of cost history to forecast, got 10." in capsys.readouterr().err
 
 
+def test_main_reports_missing_forecast_extra_without_traceback(capsys, monkeypatch):
+    """Reproduces issue #13: forecast_daily_costs lazily imports prophet/
+    cmdstanpy, which only ship via the optional `forecast` extra. Without it
+    installed, ccs must fail with a friendly message, not a raw traceback.
+    """
+
+    def _raise_missing_prophet(*args, **kwargs):
+        raise ModuleNotFoundError("No module named 'prophet'", name="prophet")
+
+    monkeypatch.setattr("cloud_cost_sentinel.cli.forecast_daily_costs", _raise_missing_prophet)
+
+    exit_code = main([])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "ccs: error: forecasting requires the missing module 'prophet'." in captured.err
+    assert 'pip install "cloud-cost-sentinel[forecast]"' in captured.err
+
+
 def test_format_report_labels_unsent_alerts_accurately(no_webhook_settings):
     report = format_report(run_pipeline(settings=no_webhook_settings))
     assert "Alerts not sent (throttled, no webhook configured, or send failed): 2" in report
