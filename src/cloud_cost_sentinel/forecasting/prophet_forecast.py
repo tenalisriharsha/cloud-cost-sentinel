@@ -20,6 +20,11 @@ MIN_HISTORY_DAYS = 14
 to act on, so :func:`forecast_daily_costs` refuses instead of returning a
 misleading number."""
 
+DAYS_PER_MONTH = 30
+"""``Settings.monthly_budget_usd`` is a flat per-30-day figure; a forecast
+horizon of any other length is prorated against it as a multiple of this
+constant (see :func:`calculate_budget_drift`)."""
+
 
 def daily_total_costs(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate raw cost records into one total-cost row per calendar day.
@@ -93,11 +98,24 @@ def calculate_budget_drift(
     *,
     settings: Settings | None = None,
 ) -> BudgetDrift:
-    """Compare a forecast's total spend against ``Settings.monthly_budget_usd``."""
+    """Compare a forecast's total spend against ``Settings.monthly_budget_usd``,
+    prorated to the forecast horizon.
+
+    ``monthly_budget_usd`` is a flat per-30-day figure, but the forecast
+    itself is a rolling window of ``Settings.forecast_horizon_days`` days
+    from the last historical day, not a calendar month. Comparing the
+    horizon's full total directly against the monthly figure overstates
+    drift for any horizon longer than 30 days (and understates it for any
+    horizon shorter than 30 days), so the budget is scaled by
+    ``forecast_horizon_days / DAYS_PER_MONTH`` before comparison.
+    """
     if not forecast:
         raise ValueError("Cannot calculate budget drift from an empty forecast.")
 
-    budget = (settings or get_settings()).monthly_budget_usd
+    resolved_settings = settings or get_settings()
+    budget = resolved_settings.monthly_budget_usd * (
+        resolved_settings.forecast_horizon_days / DAYS_PER_MONTH
+    )
     total = sum(point.forecast_cost for point in forecast)
     drift = total - budget
 

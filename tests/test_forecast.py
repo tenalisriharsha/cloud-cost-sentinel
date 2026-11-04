@@ -160,6 +160,31 @@ def test_calculate_budget_drift_rejects_empty_forecast():
         calculate_budget_drift([], settings=Settings())
 
 
+def test_calculate_budget_drift_prorates_budget_for_longer_horizons():
+    # Issue #4: with a 90-day forecast horizon, a forecast that is exactly
+    # on pace with the monthly budget (daily spend == monthly_budget / 30)
+    # must not be reported as ~200% over budget. The whole 90-day forecast
+    # total should be compared against a budget prorated to 90 days, not
+    # against the flat one-month budget_usd figure.
+    monthly_budget = 3000.0
+    daily_run_rate = monthly_budget / 30.0
+    forecast = [
+        ForecastPoint(
+            usage_date=date(2026, 3, 1) + timedelta(days=i),
+            forecast_cost=daily_run_rate,
+            forecast_low=daily_run_rate * 0.9,
+            forecast_high=daily_run_rate * 1.1,
+        )
+        for i in range(90)
+    ]
+    settings = Settings(monthly_budget_usd=monthly_budget, forecast_horizon_days=90)
+
+    drift = calculate_budget_drift(forecast, settings=settings)
+
+    assert drift.over_budget is False
+    assert drift.drift_pct == pytest.approx(0.0, abs=1.0)
+
+
 @pytest.mark.slow
 def test_first_fit_in_a_fresh_process_does_not_print_cmdstanpy_info_logs():
     # Needs a fresh interpreter: cmdstanpy only resets its logger level on
