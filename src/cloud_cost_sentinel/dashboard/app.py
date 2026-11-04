@@ -150,7 +150,7 @@ def render() -> None:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Forecast total", f"${drift.forecast_total_usd:,.0f}")
-    col2.metric("Monthly budget", f"${drift.budget_usd:,.0f}")
+    col2.metric("Budget (forecast period)", f"${drift.budget_usd:,.0f}")
     col3.metric(
         "Budget drift",
         f"{drift.drift_pct:+.1f}%",

@@ -153,10 +153,21 @@ forecast_df = load_cost_dataframe("data/sample/sample_cur_forecast.csv")
 # beyond the input history's last day (defaults to Settings.forecast_horizon_days).
 forecast = forecast_daily_costs(forecast_df, periods=30)
 
-# Compares the forecast's total against Settings.monthly_budget_usd.
+# Compares the forecast's total against Settings.monthly_budget_usd,
+# prorated to the forecast's horizon (see below).
 drift = calculate_budget_drift(forecast)
 print(drift.over_budget, drift.drift_usd, drift.drift_pct)
 ```
+
+The forecast period is a rolling window of `Settings.forecast_horizon_days`
+days starting right after the input history's last day — not a calendar
+month. `Settings.monthly_budget_usd` is a flat per-30-day figure, so
+`calculate_budget_drift` scales it by `forecast_horizon_days / 30` before
+comparing it against the horizon's total: a 90-day forecast is checked
+against 3x the monthly budget, a 15-day forecast against half of it, and
+the default 30-day horizon against the monthly figure unchanged.
+`drift.budget_usd` reports this scaled figure (the budget for the forecast
+period being reported), not the raw monthly setting.
 
 `forecast_daily_costs` fits a fresh Prophet model on total daily spend
 (`ds`/`y` shaped, summed across services) and requires at least 14 days of
