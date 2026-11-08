@@ -203,8 +203,9 @@ if drift.over_budget:
 
 `format_anomaly_alert` and `format_budget_drift_alert` turn an `Anomaly` or
 `BudgetDrift` into a `BudgetAlert` — a formatted message plus a `dedup_key`
-(`service`/`usage_date`/`method` for anomalies, the forecast period for
-budget drift). `send_alert` posts that message to the Slack webhook
+(`service`/`usage_date`/`method` for anomalies, a constant key for budget
+drift since only one monthly-budget forecast is ever in flight). `send_alert`
+posts that message to the Slack webhook
 configured via `CCS_SLACK_WEBHOOK_URL`, returning `False` without making a
 network call if no webhook is configured or if an `AlertThrottle` has
 already seen that `dedup_key` within its TTL — so the same condition

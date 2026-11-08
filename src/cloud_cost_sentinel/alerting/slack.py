@@ -44,7 +44,13 @@ def format_budget_drift_alert(drift: BudgetDrift) -> BudgetAlert:
     ``drift.over_budget`` before calling this, since a routine under-budget
     forecast isn't a page-worthy event.
     """
-    dedup_key = f"budget_drift:{drift.period_start}:{drift.period_end}"
+    # The forecast window is a rolling horizon that shifts forward by a day
+    # (or more) between `ccs` runs as new CUR data arrives, so keying on
+    # period_start/period_end would make the dedup key different every run
+    # even though it's the same ongoing over-budget condition. There is only
+    # ever one monthly-budget forecast in flight, so a constant key is enough
+    # to let the throttle recognize a repeat.
+    dedup_key = "budget_drift"
     message = (
         f":rotating_light: *Budget drift forecast* — {drift.period_start} to {drift.period_end}\n"
         f"Forecasted spend: ${drift.forecast_total_usd:,.2f}  |  Budget: ${drift.budget_usd:,.2f}  |  "
@@ -58,7 +64,8 @@ class AlertThrottle:
     window.
 
     Keyed on :attr:`BudgetAlert.dedup_key` (service/date/method for
-    anomalies, forecast period for budget drift). With no ``path``, state
+    anomalies, a constant key for budget drift since only one monthly-budget
+    forecast is ever in flight). With no ``path``, state
     is in-memory only and lives as long as the process holding it — fine
     for tests and one-off scripts. Pass ``path`` to persist the dedup keys
     and their last-sent timestamps as JSON, so a scheduled `ccs` run picks
