@@ -283,7 +283,9 @@ src/cloud_cost_sentinel/
   dashboard/                # Streamlit app visualizing the same pipeline
 data/sample/               # sample CUR data used by tests and local runs
 tests/                      # pytest suite
-.github/workflows/         # CI: lint (ruff) + test (pytest) on push/PR
+.github/workflows/         # CI: lint (ruff) + test (pytest) against pinned deps, plus a min-versions job
+constraints.txt            # pinned dependency versions installed by the main CI job
+constraints-min.txt        # core dependencies pinned to the floors declared in pyproject.toml
 ```
 
 ## Status

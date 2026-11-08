@@ -1,0 +1,8 @@
+# Pins core dependencies to the minimum versions declared in
+# pyproject.toml, so the min-versions CI job actually exercises the
+# floors the project claims to support instead of whatever pip
+# resolves as newest. Other (extra) dependencies resolve normally.
+pandas==2.2.3
+pydantic==2.7
+pydantic-settings==2.3
+python-dateutil==2.9
