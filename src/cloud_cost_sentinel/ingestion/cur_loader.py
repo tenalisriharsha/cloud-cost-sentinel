@@ -49,6 +49,10 @@ def parse_cur_rows(fieldnames: Iterable[str] | None, rows: Iterable[dict[str, st
             mapped["usage_date"] = date_parser.isoparse(mapped["usage_date"]).date()
         except ValueError as exc:
             raise ValueError(f"CUR row on line {line_number} has an invalid usage date: {exc}") from exc
+        try:
+            mapped["unblended_cost"] = float(mapped["unblended_cost"])
+        except ValueError as exc:
+            raise ValueError(f"CUR row on line {line_number} has an invalid unblended cost: {exc}") from exc
         records.append(CostRecord(**mapped))
     return records
 

@@ -77,6 +77,17 @@ def test_unparseable_usage_date_raises_value_error_naming_the_line(tmp_path):
         load_cost_records(bad_csv)
 
 
+def test_blank_unblended_cost_raises_value_error_naming_the_line(tmp_path):
+    bad_csv = tmp_path / "blank_cost.csv"
+    bad_csv.write_text(
+        CUR_HEADER
+        + "111122223333,AmazonEC2,BoxUsage:t3.medium,us-east-1,2026-08-01T00:00:00Z,1.00,USD\n"
+        + "111122223333,AmazonEC2,BoxUsage:t3.medium,us-east-1,2026-08-01T00:00:00Z,,USD\n"
+    )
+    with pytest.raises(ValueError, match="line 3"):
+        load_cost_records(bad_csv)
+
+
 def test_negative_cost_in_source_file_is_rejected(tmp_path):
     bad_csv = tmp_path / "negative.csv"
     bad_csv.write_text(
