@@ -1,7 +1,7 @@
 import json
 import logging
 import socket
-from datetime import date
+from datetime import date, timedelta
 from urllib.error import URLError
 
 import pytest
@@ -69,10 +69,33 @@ def test_format_anomaly_alert_includes_key_fields():
 def test_format_budget_drift_alert_includes_key_fields():
     alert = format_budget_drift_alert(_budget_drift())
     assert alert.source == "budget_drift"
-    assert alert.dedup_key == "budget_drift:2026-09-01:2026-09-30"
+    assert alert.dedup_key.startswith("budget_drift")
     assert "1,200.00" in alert.message
     assert "1,000.00" in alert.message
     assert "20.0%" in alert.message
+
+
+def test_format_budget_drift_alert_dedup_key_stable_as_forecast_window_rolls_forward():
+    """The rolling forecast horizon shifts forward by a day (or more) between
+    `ccs` runs as new CUR data arrives, even though the underlying "forecast
+    is over budget" condition hasn't changed. The dedup key must stay the
+    same across that shift, or the throttle can never suppress a repeat.
+    """
+    day1 = _budget_drift()
+    day2 = BudgetDrift(
+        period_start=day1.period_start + timedelta(days=1),
+        period_end=day1.period_end + timedelta(days=1),
+        forecast_total_usd=1205.0,
+        budget_usd=day1.budget_usd,
+        drift_usd=205.0,
+        drift_pct=20.5,
+        over_budget=True,
+    )
+
+    alert_day1 = format_budget_drift_alert(day1)
+    alert_day2 = format_budget_drift_alert(day2)
+
+    assert alert_day1.dedup_key == alert_day2.dedup_key
 
 
 def test_alert_throttle_allows_first_send_and_blocks_repeat():
@@ -106,6 +129,38 @@ def test_alert_throttle_persists_across_instances(tmp_path):
     # at the same path should see the prior run's state instead of re-sending.
     second = AlertThrottle(path=state_path)
     assert second.should_send(alert) is False
+
+
+def test_alert_throttle_suppresses_budget_drift_as_forecast_window_rolls_forward(tmp_path):
+    """Regression for issue #11: a scheduled `ccs` run should pick up where
+    the previous one left off instead of re-paging every invocation. Each
+    run's CUR export grows by a day, so the budget-drift forecast window
+    (and therefore its dedup key, pre-fix) shifts forward every time even
+    though the over-budget condition is ongoing. A second alert for the same
+    ongoing condition, one day later, must be throttled within the TTL.
+    """
+    state_path = tmp_path / "throttle.json"
+    day1 = _budget_drift()
+    day2 = BudgetDrift(
+        period_start=day1.period_start + timedelta(days=2),
+        period_end=day1.period_end + timedelta(days=2),
+        forecast_total_usd=1205.0,
+        budget_usd=day1.budget_usd,
+        drift_usd=205.0,
+        drift_pct=20.5,
+        over_budget=True,
+    )
+    alert_day1 = format_budget_drift_alert(day1)
+    alert_day2 = format_budget_drift_alert(day2)
+
+    # Each `ccs` invocation constructs a fresh AlertThrottle pointed at the
+    # same persisted state path, simulating two separate scheduled runs.
+    first_run = AlertThrottle(path=state_path, ttl_seconds=86400)
+    assert first_run.should_send(alert_day1) is True
+    first_run.mark_sent(alert_day1)
+
+    second_run = AlertThrottle(path=state_path, ttl_seconds=86400)
+    assert second_run.should_send(alert_day2) is False
 
 
 def test_alert_throttle_writes_json_state_file(tmp_path):
