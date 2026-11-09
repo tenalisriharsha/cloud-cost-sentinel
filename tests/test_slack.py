@@ -319,6 +319,7 @@ def _closed_local_port() -> int:
     [
         pytest.param(f"http://127.0.0.1:{_closed_local_port()}/hook", id="connection-refused"),
         pytest.param("not-a-url", id="malformed-url"),
+        pytest.param("ftp://example.com/webhook", id="non-http-scheme"),
     ],
 )
 def test_send_alert_with_real_client_returns_false_instead_of_raising(webhook_url, caplog):
