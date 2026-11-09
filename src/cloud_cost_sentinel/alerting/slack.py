@@ -144,8 +144,15 @@ def send_alert(
         webhook_client = _WebhookClient(resolved_settings.slack_webhook_url)
 
     try:
+        from slack_sdk.errors import SlackClientError
+    except ImportError:
+
+        class SlackClientError(Exception):  # type: ignore[no-redef]
+            """Placeholder when slack_sdk isn't installed; never raised."""
+
+    try:
         response = webhook_client.send(text=alert.message)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, SlackClientError) as exc:
         logger.warning("Slack alert %s failed to send: %s", alert.dedup_key, exc)
         return False
     sent = response.status_code == 200
