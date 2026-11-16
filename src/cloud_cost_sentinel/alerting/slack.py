@@ -9,6 +9,7 @@ callers that only need formatting or throttling.
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import time
@@ -152,7 +153,7 @@ def send_alert(
 
     try:
         response = webhook_client.send(text=alert.message)
-    except (OSError, ValueError, SlackClientError) as exc:
+    except (OSError, ValueError, SlackClientError, http.client.HTTPException) as exc:
         logger.warning("Slack alert %s failed to send: %s", alert.dedup_key, exc)
         return False
     sent = response.status_code == 200
