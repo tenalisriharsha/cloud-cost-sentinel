@@ -1,3 +1,4 @@
+import codecs
 from datetime import date
 from pathlib import Path
 
@@ -86,6 +87,17 @@ def test_blank_unblended_cost_raises_value_error_naming_the_line(tmp_path):
     )
     with pytest.raises(ValueError, match="line 3"):
         load_cost_records(bad_csv)
+
+
+def test_cur_file_with_utf8_bom_loads_same_records_as_without(tmp_path):
+    bom_csv = tmp_path / "bom.csv"
+    bom_csv.write_bytes(codecs.BOM_UTF8 + SAMPLE_CUR_PATH.read_bytes())
+
+    records_with_bom = load_cost_records(bom_csv)
+    records_without_bom = load_cost_records(SAMPLE_CUR_PATH)
+
+    assert len(records_with_bom) > 0
+    assert records_with_bom == records_without_bom
 
 
 def test_negative_cost_in_source_file_is_rejected(tmp_path):

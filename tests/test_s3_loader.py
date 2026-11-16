@@ -1,3 +1,4 @@
+import codecs
 from datetime import date
 from pathlib import Path
 
@@ -71,6 +72,19 @@ def test_load_cost_dataframe_from_s3_empty_file_returns_empty_dataframe():
         client.put_object(Bucket=BUCKET, Key="empty.csv", Body=header.encode("utf-8"))
         df = load_cost_dataframe_from_s3(BUCKET, "empty.csv")
         assert df.empty
+
+
+def test_load_cost_records_from_s3_with_utf8_bom_loads_same_records_as_without(s3_bucket_with_sample_cur):
+    bom_key = "reports/bom_sample_cur.csv"
+    s3_bucket_with_sample_cur.put_object(
+        Bucket=BUCKET, Key=bom_key, Body=codecs.BOM_UTF8 + SAMPLE_CUR_PATH.read_bytes()
+    )
+
+    records_with_bom = load_cost_records_from_s3(BUCKET, bom_key)
+    records_without_bom = load_cost_records_from_s3(BUCKET, KEY)
+
+    assert len(records_with_bom) > 0
+    assert records_with_bom == records_without_bom
 
 
 def test_ingestion_package_lazily_exposes_s3_loader_functions():
