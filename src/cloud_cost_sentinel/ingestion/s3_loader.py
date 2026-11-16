@@ -30,7 +30,7 @@ def load_cost_records_from_s3(
     """Fetch a CUR-format CSV object from S3 and parse it into ``CostRecord`` objects."""
     client = _get_s3_client(endpoint_url)
     response = client.get_object(Bucket=bucket, Key=key)
-    body = response["Body"].read().decode("utf-8")
+    body = response["Body"].read().decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(body))
     return parse_cur_rows(reader.fieldnames, reader)
 

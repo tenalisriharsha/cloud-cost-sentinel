@@ -60,7 +60,7 @@ def parse_cur_rows(fieldnames: Iterable[str] | None, rows: Iterable[dict[str, st
 def load_cost_records(path: str | Path) -> list[CostRecord]:
     """Parse a CUR-format CSV file into a list of validated ``CostRecord``."""
     csv_path = Path(path)
-    with csv_path.open(newline="", encoding="utf-8") as fh:
+    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         return parse_cur_rows(reader.fieldnames, reader)
 
