@@ -176,6 +176,11 @@ def main(argv: list[str] | None = None) -> int:
         print('ccs: install it with: pip install "cloud-cost-sentinel[forecast]"', file=sys.stderr)
         return 1
     print(format_report(result))
+    # A configured webhook that cannot deliver an alert must make scheduled
+    # runs fail visibly; otherwise cron reports a healthy run while alerting is
+    # broken.  An unset webhook remains an intentional no-op for local runs.
+    if get_settings().slack_webhook_url and result.alerts_skipped:
+        return 1
     return 0
 
 
