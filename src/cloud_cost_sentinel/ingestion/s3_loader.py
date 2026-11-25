@@ -12,9 +12,14 @@ import io
 
 import boto3
 import pandas as pd
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
 from cloud_cost_sentinel.ingestion.cur_loader import parse_cur_rows
 from cloud_cost_sentinel.models import CostRecord
+
+
+class S3LoadError(RuntimeError):
+    """Raised when a CUR object cannot be fetched from S3."""
 
 
 def _get_s3_client(endpoint_url: str | None = None):
@@ -29,7 +34,10 @@ def load_cost_records_from_s3(
 ) -> list[CostRecord]:
     """Fetch a CUR-format CSV object from S3 and parse it into ``CostRecord`` objects."""
     client = _get_s3_client(endpoint_url)
-    response = client.get_object(Bucket=bucket, Key=key)
+    try:
+        response = client.get_object(Bucket=bucket, Key=key)
+    except (BotoCoreError, ClientError, NoCredentialsError) as exc:
+        raise S3LoadError(f"Unable to load CUR object s3://{bucket}/{key}: {exc}") from exc
     body = response["Body"].read().decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(body))
     return parse_cur_rows(reader.fieldnames, reader)
