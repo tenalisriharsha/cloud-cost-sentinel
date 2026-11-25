@@ -114,7 +114,7 @@ def calculate_budget_drift(
 
     resolved_settings = settings or get_settings()
     budget = resolved_settings.monthly_budget_usd * (
-        resolved_settings.forecast_horizon_days / DAYS_PER_MONTH
+        len(forecast) / DAYS_PER_MONTH
     )
     total = sum(point.forecast_cost for point in forecast)
     drift = total - budget

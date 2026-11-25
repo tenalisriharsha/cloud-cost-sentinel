@@ -1,5 +1,6 @@
 from datetime import date
 
+import cloud_cost_sentinel.cli as cli
 import pytest
 
 from cloud_cost_sentinel.alerting.slack import AlertThrottle
